@@ -10,8 +10,10 @@
   <!-- ===================== LOGIN VIEW ===================== -->
   <section id="view-login" class="view">
     <div class="login-card">
+      <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="dept-logo" />
       <h1>Gates PD RMS</h1>
       <p class="subtitle">Records Management &amp; Court Clerk Ledger</p>
+      <p class="dept-contact">Gates Police Department &middot; 10085 2nd Street, Gates, TN 38037 &middot; (731) 290-0614</p>
       <form id="login-form" novalidate>
         <label for="login-username">Username</label>
         <input id="login-username" name="username" type="text" autocomplete="username" required />
@@ -28,7 +30,13 @@
   <!-- ===================== APP SHELL ===================== -->
   <div id="app-shell" class="view" hidden>
     <header class="topbar">
-      <div class="topbar-title">Gates PD RMS</div>
+      <div class="topbar-brand">
+        <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="topbar-logo" />
+        <div>
+          <div class="topbar-title">Gates PD RMS</div>
+          <div class="topbar-contact">10085 2nd St, Gates, TN 38037 &middot; (731) 290-0614</div>
+        </div>
+      </div>
       <div class="topbar-user">
         <span id="user-name"></span>
         <span id="user-role" class="badge"></span>
@@ -42,6 +50,7 @@
       <button class="nav-btn" data-view="search">Search</button>
       <button class="nav-btn" data-view="citations">Citations</button>
       <button class="nav-btn" data-view="issue" id="nav-issue">Issue Citation</button>
+      <button class="nav-btn" data-view="personnel" id="nav-personnel" hidden>Personnel</button>
     </nav>
   </div>
 
@@ -122,6 +131,13 @@
   <template id="tpl-citation-detail">
     <section class="panel">
       <button class="btn btn-link back-btn">&larr; Back to citations</button>
+      <div class="report-letterhead">
+        <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
+        <div>
+          <div class="report-dept-name">Gates Police Department</div>
+          <div class="report-dept-contact">10085 2nd Street, Gates, TN 38037 &middot; (731) 290-0614</div>
+        </div>
+      </div>
       <h2 class="c-number"></h2>
       <dl class="detail-grid">
         <dt>Violator</dt><dd class="c-violator"></dd>
@@ -286,6 +302,44 @@
         <p id="issue-error" class="error-text" hidden></p>
         <p id="issue-success" class="success-text" hidden></p>
       </form>
+    </section>
+  </template>
+
+  <template id="tpl-personnel">
+    <section class="panel">
+      <h2>Personnel</h2>
+      <p class="hint">Add, deactivate, or reactivate accounts for this department. Accounts are never deleted outright -- deactivating blocks login while keeping the account on record.</p>
+      <button id="personnel-add-btn" class="btn btn-primary">+ Add Personnel</button>
+
+      <form id="personnel-add-form" class="issue-form" hidden novalidate>
+        <fieldset>
+          <legend>New Account</legend>
+          <label for="pn-username">Username</label>
+          <input id="pn-username" required />
+          <label for="pn-password">Temporary Password</label>
+          <input id="pn-password" type="text" required minlength="10" />
+          <label for="pn-full-name">Full Name</label>
+          <input id="pn-full-name" required />
+          <label for="pn-badge">Badge Number</label>
+          <input id="pn-badge" required />
+          <label for="pn-rank">Rank</label>
+          <input id="pn-rank" />
+          <label for="pn-agency">Agency</label>
+          <input id="pn-agency" value="Gates Police Department" required />
+          <label for="pn-role">Role</label>
+          <select id="pn-role" required>
+            <option value="Patrol_Officer">Patrol Officer</option>
+            <option value="Supervisor">Supervisor</option>
+            <option value="Court_Clerk">Court Clerk</option>
+            <option value="System_Admin">System Admin</option>
+          </select>
+        </fieldset>
+        <button type="submit" class="btn btn-primary btn-block">Create Account</button>
+        <p id="personnel-add-error" class="error-text" hidden></p>
+        <p id="personnel-add-success" class="success-text" hidden></p>
+      </form>
+
+      <ul id="personnel-list" class="result-list"></ul>
     </section>
   </template>
 

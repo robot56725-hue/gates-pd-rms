@@ -36,6 +36,21 @@ html, body {
   background: linear-gradient(180deg, var(--navy) 0%, var(--navy-dark) 100%);
 }
 
+.dept-logo {
+  display: block;
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+}
+.dept-contact {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+  margin: -8px 0 16px;
+}
+
 .login-card {
   width: 100%;
   max-width: 380px;
@@ -128,6 +143,18 @@ legend {
 .btn-link { background: transparent; color: var(--navy); padding: 8px; text-decoration: underline; }
 .btn-block { width: 100%; margin-top: 20px; }
 
+.report-letterhead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid var(--navy);
+}
+.report-logo { width: 52px; height: 52px; object-fit: contain; border-radius: 50%; flex-shrink: 0; }
+.report-dept-name { font-weight: 700; color: var(--navy); }
+.report-dept-contact { font-size: 0.8rem; color: var(--muted); }
+
 .gps-row { margin: 4px 0 12px; }
 .gps-row .btn { margin-top: 6px; }
 .gps-row .hint { margin-top: 6px; }
@@ -154,7 +181,10 @@ legend {
   top: 0;
   z-index: 10;
 }
+.topbar-brand { display: flex; align-items: center; gap: 10px; }
+.topbar-logo { width: 36px; height: 36px; object-fit: contain; border-radius: 50%; flex-shrink: 0; }
 .topbar-title { font-weight: 700; font-size: 1.05rem; }
+.topbar-contact { font-size: 0.68rem; color: rgba(255,255,255,0.7); margin-top: 1px; }
 .topbar-user { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
 .topbar-user .btn-link { color: var(--gold); padding: 4px; }
 .badge {
@@ -229,6 +259,8 @@ legend {
 .result-item:active { background: var(--bg); }
 .result-item .r-title { font-weight: 700; color: var(--navy); }
 .result-item .r-sub { font-size: 0.85rem; color: var(--muted); }
+#personnel-list .result-item { cursor: default; }
+#personnel-list .btn { margin-top: 8px; }
 
 .detail-grid {
   display: grid;

@@ -116,6 +116,11 @@ function showApp() {
   const canIssue = profile && ['Patrol_Officer', 'Supervisor'].includes(profile.role);
   document.getElementById('nav-issue').hidden = !canIssue;
 
+  // Personnel management is System_Admin only -- matches the API's own
+  // requireRoles('System_Admin') guard on /api/users (see users.routes.js).
+  const canManagePersonnel = profile && profile.role === 'System_Admin';
+  document.getElementById('nav-personnel').hidden = !canManagePersonnel;
+
   navigate('search');
 }
 
@@ -158,6 +163,7 @@ function navigate(view) {
   if (view === 'search') renderSearch();
   else if (view === 'citations') renderCitationsList();
   else if (view === 'issue') renderIssueForm();
+  else if (view === 'personnel') renderPersonnel();
 }
 
 function mount(templateId) {
@@ -574,6 +580,104 @@ function renderIssueForm() {
       errorEl.hidden = false;
     }
   });
+}
+
+// ------------------------------------------------------------------
+// Personnel management (System_Admin only)
+// ------------------------------------------------------------------
+
+async function renderPersonnel() {
+  mount('tpl-personnel');
+
+  const addBtn = document.getElementById('personnel-add-btn');
+  const addForm = document.getElementById('personnel-add-form');
+  const listEl = document.getElementById('personnel-list');
+  const myProfile = getProfile();
+
+  addBtn.addEventListener('click', () => {
+    addForm.hidden = !addForm.hidden;
+  });
+
+  addForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('personnel-add-error');
+    const successEl = document.getElementById('personnel-add-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+
+    const payload = {
+      username: document.getElementById('pn-username').value.trim(),
+      password: document.getElementById('pn-password').value,
+      full_name: document.getElementById('pn-full-name').value.trim(),
+      badge_number: document.getElementById('pn-badge').value.trim(),
+      officer_rank: document.getElementById('pn-rank').value.trim() || undefined,
+      agency: document.getElementById('pn-agency').value.trim(),
+      role: document.getElementById('pn-role').value,
+    };
+
+    try {
+      await apiFetch('/api/users', { method: 'POST', body: JSON.stringify(payload) });
+      successEl.textContent = `Account "${payload.username}" created.`;
+      successEl.hidden = false;
+      addForm.reset();
+      document.getElementById('pn-agency').value = 'Gates Police Department';
+      loadPersonnelList(listEl, myProfile);
+    } catch (err) {
+      let message = err.message;
+      if (err.details && Array.isArray(err.details.details)) {
+        message += ': ' + err.details.details.map((d) => d.message).join('; ');
+      }
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+    }
+  });
+
+  await loadPersonnelList(listEl, myProfile);
+}
+
+async function loadPersonnelList(listEl, myProfile) {
+  listEl.innerHTML = '<li class="hint">Loading...</li>';
+  try {
+    const data = await apiFetch('/api/users');
+    listEl.innerHTML = '';
+    if (data.results.length === 0) {
+      listEl.innerHTML = '<li class="hint">No accounts on file.</li>';
+      return;
+    }
+    data.results.forEach((u) => {
+      const li = document.createElement('li');
+      li.className = 'result-item';
+      const isSelf = myProfile && myProfile.badge_number === u.badge_number;
+      li.innerHTML = `<div class="r-title">${escapeHtml(u.full_name)} — ${escapeHtml(u.username)} ${
+        u.is_active ? '' : '<span class="badge">Deactivated</span>'
+      }</div>
+        <div class="r-sub">${escapeHtml(u.role.replace(/_/g, ' '))} · Badge ${escapeHtml(u.badge_number)} · ${escapeHtml(
+        u.officer_rank || ''
+      )} · ${escapeHtml(u.agency)}</div>`;
+
+      if (!isSelf) {
+        const toggleBtn = document.createElement('button');
+        toggleBtn.className = 'btn btn-secondary';
+        toggleBtn.textContent = u.is_active ? 'Deactivate' : 'Reactivate';
+        toggleBtn.addEventListener('click', async () => {
+          try {
+            await apiFetch(`/api/users/${u.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ is_active: !u.is_active }),
+            });
+            loadPersonnelList(listEl, myProfile);
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+        li.appendChild(toggleBtn);
+      }
+
+      listEl.appendChild(li);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<li class="error-text">${escapeHtml(err.message)}</li>`;
+  }
 }
 
 // ------------------------------------------------------------------
