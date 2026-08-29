@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: gates-pd-rms
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "true"
+      # Render terminates TLS at its own edge and always sits in front of
+      # this service, so the app can safely trust the X-Forwarded-For it
+      # sets (see src/config/env.js / app.set('trust proxy', 1) in app.js).
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_ISSUER
+        value: gates-pd-rms
+      - key: JWT_AUDIENCE
+        value: gates-pd-rms-api
+      - key: SSN_ENCRYPTION_KEY
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        value: ""
+      # This app serves its own mobile front end from the same origin (see
+      # public/ + app.use(express.static(...)) in src/app.js), so CORS only
+      # matters if some OTHER site needs to call this API directly. Leave
+      # blank unless that's actually needed.

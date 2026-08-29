@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Gates PD RMS</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- ===================== LOGIN VIEW ===================== -->
+  <section id="view-login" class="view">
+    <div class="login-card">
+      <h1>Gates PD RMS</h1>
+      <p class="subtitle">Records Management &amp; Court Clerk Ledger</p>
+      <form id="login-form" novalidate>
+        <label for="login-username">Username</label>
+        <input id="login-username" name="username" type="text" autocomplete="username" required />
+
+        <label for="login-password">Password</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required />
+
+        <button type="submit" class="btn btn-primary btn-block">Log In</button>
+        <p id="login-error" class="error-text" hidden></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===================== APP SHELL ===================== -->
+  <div id="app-shell" class="view" hidden>
+    <header class="topbar">
+      <div class="topbar-title">Gates PD RMS</div>
+      <div class="topbar-user">
+        <span id="user-name"></span>
+        <span id="user-role" class="badge"></span>
+        <button id="logout-btn" class="btn btn-link">Log Out</button>
+      </div>
+    </header>
+
+    <main id="main-content"></main>
+
+    <nav class="bottom-nav">
+      <button class="nav-btn" data-view="search">Search</button>
+      <button class="nav-btn" data-view="citations">Citations</button>
+      <button class="nav-btn" data-view="issue" id="nav-issue">Issue Citation</button>
+    </nav>
+  </div>
+
+  <!-- ===================== TEMPLATES ===================== -->
+  <template id="tpl-search">
+    <section class="panel">
+      <h2>Search</h2>
+      <div class="scope-toggle">
+        <button class="scope-btn active" data-scope="persons">People</button>
+        <button class="scope-btn" data-scope="vehicles">Vehicles</button>
+        <button class="scope-btn" data-scope="citations">Citations</button>
+      </div>
+      <form id="search-form" class="search-form">
+        <input id="search-input" type="text" placeholder="Name, license plate, VIN, citation #..." />
+        <button type="submit" class="btn btn-primary">Search</button>
+      </form>
+      <p id="search-status" class="hint"></p>
+      <ul id="search-results" class="result-list"></ul>
+    </section>
+  </template>
+
+  <template id="tpl-person-detail">
+    <section class="panel">
+      <button class="btn btn-link back-btn">&larr; Back to search</button>
+      <h2 class="person-name"></h2>
+      <dl class="detail-grid">
+        <dt>Date of Birth</dt><dd class="p-dob"></dd>
+        <dt>Driver's License</dt><dd class="p-dl"></dd>
+        <dt>DL Class</dt><dd class="p-dlclass"></dd>
+        <dt>CDL</dt><dd class="p-cdl"></dd>
+        <dt>Phone</dt><dd class="p-phone"></dd>
+        <dt>Address</dt><dd class="p-address"></dd>
+      </dl>
+      <h3>Citation History</h3>
+      <ul class="result-list p-citations"></ul>
+    </section>
+  </template>
+
+  <template id="tpl-vehicle-detail">
+    <section class="panel">
+      <button class="btn btn-link back-btn">&larr; Back to search</button>
+      <h2 class="vehicle-title"></h2>
+      <dl class="detail-grid">
+        <dt>VIN</dt><dd class="v-vin"></dd>
+        <dt>Owner</dt><dd class="v-owner"></dd>
+        <dt>Year</dt><dd class="v-year"></dd>
+        <dt>Color</dt><dd class="v-color"></dd>
+        <dt>Plate Year</dt><dd class="v-plateyear"></dd>
+      </dl>
+      <h3>Citation History</h3>
+      <ul class="result-list v-citations"></ul>
+    </section>
+  </template>
+
+  <template id="tpl-citations">
+    <section class="panel">
+      <h2>Citations</h2>
+      <div class="filter-row">
+        <label class="checkbox-label"><input type="checkbox" id="filter-mine" /> My citations only</label>
+        <select id="filter-status">
+          <option value="">Any status</option>
+          <option value="Pending">Pending</option>
+          <option value="Guilty">Guilty</option>
+          <option value="Not_Guilty">Not Guilty</option>
+          <option value="Dismissed">Dismissed</option>
+          <option value="FTA_Failure_To_Appear">FTA / Failure to Appear</option>
+        </select>
+      </div>
+      <ul id="citations-list" class="result-list"></ul>
+      <div class="pager">
+        <button id="citations-prev" class="btn btn-secondary">&larr; Prev</button>
+        <span id="citations-page-info" class="hint"></span>
+        <button id="citations-next" class="btn btn-secondary">Next &rarr;</button>
+      </div>
+    </section>
+  </template>
+
+  <template id="tpl-citation-detail">
+    <section class="panel">
+      <button class="btn btn-link back-btn">&larr; Back to citations</button>
+      <h2 class="c-number"></h2>
+      <dl class="detail-grid">
+        <dt>Violator</dt><dd class="c-violator"></dd>
+        <dt>Vehicle</dt><dd class="c-vehicle"></dd>
+        <dt>Officer</dt><dd class="c-officer"></dd>
+        <dt>Offense Date</dt><dd class="c-offense-date"></dd>
+        <dt>Location</dt><dd class="c-location"></dd>
+        <dt>Offense</dt><dd class="c-description"></dd>
+        <dt>T.C.A. Code</dt><dd class="c-tca"></dd>
+        <dt>Court Date</dt><dd class="c-court-date"></dd>
+        <dt>Court</dt><dd class="c-court-name"></dd>
+        <dt>Filing Deadline</dt><dd class="c-deadline"></dd>
+        <dt>Status</dt><dd class="c-status"></dd>
+        <dt>Fine Due</dt><dd class="c-fine"></dd>
+        <dt>Paid</dt><dd class="c-paid"></dd>
+      </dl>
+
+      <form id="ledger-form" class="ledger-form" hidden>
+        <h3>Update Court Disposition</h3>
+        <label for="ledger-status">Status</label>
+        <select id="ledger-status">
+          <option value="">-- leave unchanged --</option>
+          <option value="Pending">Pending</option>
+          <option value="Guilty">Guilty</option>
+          <option value="Not_Guilty">Not Guilty</option>
+          <option value="Dismissed">Dismissed</option>
+          <option value="FTA_Failure_To_Appear">FTA / Failure to Appear</option>
+        </select>
+        <label for="ledger-fine">Fine Amount Due</label>
+        <input id="ledger-fine" type="number" step="0.01" min="0" />
+        <label for="ledger-paid">Amount Paid</label>
+        <input id="ledger-paid" type="number" step="0.01" min="0" />
+        <label for="ledger-payment-date">Payment Date</label>
+        <input id="ledger-payment-date" type="date" />
+        <label for="ledger-notes">Disposition Notes</label>
+        <textarea id="ledger-notes" rows="3"></textarea>
+        <button type="submit" class="btn btn-primary btn-block">Save Disposition</button>
+        <p class="ledger-error error-text" hidden></p>
+        <p class="ledger-success success-text" hidden></p>
+      </form>
+    </section>
+  </template>
+
+  <template id="tpl-issue">
+    <section class="panel">
+      <h2>Issue Citation</h2>
+      <form id="issue-form" class="issue-form" novalidate>
+        <fieldset>
+          <legend>Citation</legend>
+          <label for="i-citation-number">Citation Number</label>
+          <input id="i-citation-number" required />
+        </fieldset>
+
+        <fieldset>
+          <legend>Violator</legend>
+          <label for="i-first-name">First Name</label>
+          <input id="i-first-name" required />
+          <label for="i-middle-name">Middle Name</label>
+          <input id="i-middle-name" />
+          <label for="i-last-name">Last Name</label>
+          <input id="i-last-name" required />
+          <label for="i-dob">Date of Birth</label>
+          <input id="i-dob" type="date" required />
+          <label for="i-sex">Sex</label>
+          <select id="i-sex" required>
+            <option value="">-- select --</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+            <option value="Unknown">Unknown</option>
+          </select>
+          <label for="i-race">Race</label>
+          <select id="i-race" required>
+            <option value="">-- select --</option>
+            <option value="White">White</option>
+            <option value="Black">Black</option>
+            <option value="American_Indian_Alaska_Native">American Indian / Alaska Native</option>
+            <option value="Asian">Asian</option>
+            <option value="Native_Hawaiian_Pacific_Islander">Native Hawaiian / Pacific Islander</option>
+            <option value="Unknown">Unknown</option>
+          </select>
+          <label for="i-height">Height (inches)</label>
+          <input id="i-height" type="number" inputmode="numeric" min="20" max="96" required />
+          <label for="i-weight">Weight (lbs)</label>
+          <input id="i-weight" type="number" inputmode="numeric" min="30" max="700" required />
+          <label for="i-eye-color">Eye Color</label>
+          <input id="i-eye-color" required />
+          <label for="i-hair-color">Hair Color</label>
+          <input id="i-hair-color" required />
+          <label for="i-dl-num">Driver's License #</label>
+          <input id="i-dl-num" required />
+          <label for="i-dl-state">DL State</label>
+          <input id="i-dl-state" maxlength="2" required />
+          <label for="i-dl-class">DL Class</label>
+          <input id="i-dl-class" required />
+          <label class="checkbox-label"><input type="checkbox" id="i-is-cdl" /> Commercial Driver's License (CDL)</label>
+          <label for="i-phone">Phone</label>
+          <input id="i-phone" />
+          <label for="i-address">Address</label>
+          <input id="i-address" />
+        </fieldset>
+
+        <fieldset>
+          <legend>Vehicle</legend>
+          <label for="i-vin">VIN (optional)</label>
+          <input id="i-vin" maxlength="17" />
+          <label for="i-make">Make</label>
+          <input id="i-make" required />
+          <label for="i-model">Model</label>
+          <input id="i-model" required />
+          <label for="i-year">Year</label>
+          <input id="i-year" inputmode="numeric" maxlength="4" required />
+          <label for="i-color">Color</label>
+          <input id="i-color" required />
+          <label for="i-owner">Owner Name</label>
+          <input id="i-owner" required />
+          <label for="i-plate">Plate Number</label>
+          <input id="i-plate" required />
+          <label for="i-plate-year">Plate Year</label>
+          <input id="i-plate-year" inputmode="numeric" maxlength="4" required />
+          <label for="i-plate-state">Plate State</label>
+          <input id="i-plate-state" maxlength="2" required />
+        </fieldset>
+
+        <fieldset>
+          <legend>Offense</legend>
+          <label for="i-offense-date">Offense Date</label>
+          <input id="i-offense-date" type="date" required />
+          <label for="i-offense-time">Offense Time</label>
+          <input id="i-offense-time" type="time" required />
+          <label for="i-location">Location</label>
+          <input id="i-location" required />
+          <div class="gps-row">
+            <label for="i-latitude">Latitude</label>
+            <input id="i-latitude" type="number" step="any" min="-90" max="90" required />
+            <label for="i-longitude">Longitude</label>
+            <input id="i-longitude" type="number" step="any" min="-180" max="180" required />
+            <button type="button" id="i-use-location" class="btn btn-secondary">Use My Location</button>
+            <p id="i-location-status" class="hint"></p>
+          </div>
+          <label for="i-description">Description</label>
+          <textarea id="i-description" rows="2" required></textarea>
+          <label for="i-tca">T.C.A. Code</label>
+          <input id="i-tca" required />
+          <label class="checkbox-label"><input type="checkbox" id="i-is-cmv" /> Commercial Motor Vehicle</label>
+          <label class="checkbox-label"><input type="checkbox" id="i-is-hazmat" /> Hazmat</label>
+          <label class="checkbox-label"><input type="checkbox" id="i-is-16plus" /> 16+ Passenger Capacity</label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Court Appearance</legend>
+          <label for="i-court-date">Court Date</label>
+          <input id="i-court-date" type="date" required />
+          <label for="i-court-time">Court Time</label>
+          <input id="i-court-time" type="time" required />
+          <label for="i-court-location">Court Location</label>
+          <input id="i-court-location" required />
+          <label for="i-court-name">Court Name</label>
+          <input id="i-court-name" required />
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary btn-block">Submit Citation</button>
+        <p id="issue-error" class="error-text" hidden></p>
+        <p id="issue-success" class="success-text" hidden></p>
+      </form>
+    </section>
+  </template>
+
+  <script src="/app.js"></script>
+</body>
+</html>

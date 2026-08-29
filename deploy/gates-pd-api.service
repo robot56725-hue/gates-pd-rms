@@ -1,0 +1,28 @@
+[Unit]
+Description=Gates Police Department RMS API (Express)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+# Dedicated, unprivileged service account -- never run the app as root.
+# Create it once with: sudo useradd --system --no-create-home --shell /usr/sbin/nologin gatespd
+User=gatespd
+Group=gatespd
+WorkingDirectory=/opt/gates-pd-api
+EnvironmentFile=/opt/gates-pd-api/.env
+ExecStart=/usr/bin/node /opt/gates-pd-api/src/server.js
+Restart=on-failure
+RestartSec=5
+
+# Defense-in-depth process sandboxing (systemd, not application code): the
+# app only needs to open outbound connections to Postgres and listen on its
+# own HTTP port -- it has no business writing anywhere on disk at runtime.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/opt/gates-pd-api
+
+[Install]
+WantedBy=multi-user.target
