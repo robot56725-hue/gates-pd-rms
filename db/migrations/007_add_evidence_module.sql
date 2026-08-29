@@ -111,4 +111,10 @@ CREATE TRIGGER trg_evidence_items_updated_at
 -- reports -- no RLS restricting SELECT). Writes are enforced at the
 -- application layer via requireRoles(), same pattern as every other module.
 
+-- The app connects as gates_app_user, a low-privilege role that does not own
+-- the public schema (same as every other table) -- explicit grants here so
+-- the new tables work immediately regardless of whether this session's
+-- ALTER DEFAULT PRIVILEGES from provisioning already covers it.
+GRANT SELECT, INSERT, UPDATE, DELETE ON evidence_items, evidence_custody_log TO gates_app_user;
+
 COMMIT;
