@@ -50,6 +50,9 @@
       <button class="nav-btn" data-view="search">Search</button>
       <button class="nav-btn" data-view="citations">Citations</button>
       <button class="nav-btn" data-view="issue" id="nav-issue">Issue Citation</button>
+      <button class="nav-btn" data-view="incidents" id="nav-incidents" hidden>Incidents</button>
+      <button class="nav-btn" data-view="crashes" id="nav-crashes" hidden>Crashes</button>
+      <button class="nav-btn" data-view="evidence" id="nav-evidence" hidden>Evidence</button>
       <button class="nav-btn" data-view="personnel" id="nav-personnel" hidden>Personnel</button>
     </nav>
   </div>
@@ -340,6 +343,315 @@
       </form>
 
       <ul id="personnel-list" class="result-list"></ul>
+    </section>
+  </template>
+
+  <template id="tpl-incidents">
+    <section class="panel">
+      <h2>Incidents</h2>
+      <button id="incident-new-btn" class="btn btn-primary">+ New Incident Report</button>
+
+      <form id="incident-form" class="issue-form" hidden novalidate>
+        <fieldset>
+          <legend>Case Details</legend>
+          <label for="in-case-number">Case Number</label>
+          <input id="in-case-number" required />
+          <label for="in-occurrence-date">Occurrence Date</label>
+          <input id="in-occurrence-date" type="date" required />
+          <label for="in-occurrence-time">Occurrence Time</label>
+          <input id="in-occurrence-time" type="time" required />
+          <label for="in-location-address">Location Address</label>
+          <input id="in-location-address" required />
+          <label for="in-location-type">Location Type</label>
+          <select id="in-location-type" required>
+            <option value="">-- select --</option>
+            <option value="Air_Bus_Train_Terminal">Air Bus Train Terminal</option>
+            <option value="Bank_Savings_Loan">Bank Savings Loan</option>
+            <option value="Bar_Nightclub">Bar Nightclub</option>
+            <option value="Church_Synagogue_Temple_Mosque">Church Synagogue Temple Mosque</option>
+            <option value="Commercial_Office_Building">Commercial Office Building</option>
+            <option value="Construction_Site">Construction Site</option>
+            <option value="Convenience_Store">Convenience Store</option>
+            <option value="Department_Discount_Store">Department Discount Store</option>
+            <option value="Drug_Store_Doctors_Office_Hospital">Drug Store Doctors Office Hospital</option>
+            <option value="Field_Woods">Field Woods</option>
+            <option value="Government_Public_Building">Government Public Building</option>
+            <option value="Grocery_Supermarket">Grocery Supermarket</option>
+            <option value="Highway_Road_Alley_Street_Sidewalk">Highway Road Alley Street Sidewalk</option>
+            <option value="Hotel_Motel">Hotel Motel</option>
+            <option value="Jail_Prison">Jail Prison</option>
+            <option value="Lake_Waterway_Beach">Lake Waterway Beach</option>
+            <option value="Liquor_Store">Liquor Store</option>
+            <option value="Parking_Lot_Garage">Parking Lot Garage</option>
+            <option value="Park_Playground">Park Playground</option>
+            <option value="Rental_Storage_Facility">Rental Storage Facility</option>
+            <option value="Residence_Home">Residence Home</option>
+            <option value="Restaurant">Restaurant</option>
+            <option value="School_College">School College</option>
+            <option value="Service_Gas_Station">Service Gas Station</option>
+            <option value="Shopping_Mall">Shopping Mall</option>
+            <option value="Specialty_Store">Specialty Store</option>
+            <option value="Other">Other</option>
+            <option value="Unknown">Unknown</option>
+          </select>
+          <div class="gps-row">
+            <label for="in-latitude">Latitude (optional)</label>
+            <input id="in-latitude" type="number" step="any" min="-90" max="90" />
+            <label for="in-longitude">Longitude (optional)</label>
+            <input id="in-longitude" type="number" step="any" min="-180" max="180" />
+            <button type="button" id="in-use-location" class="btn btn-secondary">Use My Location</button>
+            <p id="in-location-status" class="hint"></p>
+          </div>
+          <label for="in-narrative">Narrative</label>
+          <textarea id="in-narrative" rows="3"></textarea>
+        </fieldset>
+
+        <fieldset>
+          <legend>Offenses <span class="hint">(1-10 required)</span></legend>
+          <div id="incident-offense-rows"></div>
+          <button type="button" id="incident-add-offense" class="btn btn-secondary">+ Add Offense</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Persons Involved <span class="hint">(victims, offenders, witnesses)</span></legend>
+          <div id="incident-person-rows"></div>
+          <button type="button" id="incident-add-person" class="btn btn-secondary">+ Add Person</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Victim-Offender Relationships <span class="hint">(optional)</span></legend>
+          <div id="incident-relationship-rows"></div>
+          <button type="button" id="incident-add-relationship" class="btn btn-secondary">+ Add Relationship</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Property <span class="hint">(optional)</span></legend>
+          <div id="incident-property-rows"></div>
+          <button type="button" id="incident-add-property" class="btn btn-secondary">+ Add Property</button>
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary btn-block">Submit Incident Report</button>
+        <p id="incident-form-error" class="error-text" hidden></p>
+        <p id="incident-form-success" class="success-text" hidden></p>
+      </form>
+
+      <ul id="incidents-list" class="result-list"></ul>
+    </section>
+  </template>
+
+  <template id="tpl-incident-detail">
+    <section class="panel">
+      <button class="btn btn-link back-btn">&larr; Back to incidents</button>
+      <div class="report-letterhead">
+        <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
+        <div>
+          <div class="report-dept-name">Gates Police Department</div>
+          <div class="report-dept-contact">10085 2nd Street, Gates, TN 38037 &middot; (731) 290-0614</div>
+        </div>
+      </div>
+      <h2 class="i-case-number"></h2>
+      <dl class="detail-grid">
+        <dt>Occurrence Date</dt><dd class="i-occurrence-date"></dd>
+        <dt>Location</dt><dd class="i-location"></dd>
+        <dt>Location Type</dt><dd class="i-location-type"></dd>
+        <dt>Status</dt><dd class="i-status"></dd>
+        <dt>Exceptional Clearance</dt><dd class="i-clearance"></dd>
+      </dl>
+      <h3>Offenses</h3>
+      <ul class="result-list i-offenses"></ul>
+      <h3>Persons</h3>
+      <ul class="result-list i-persons"></ul>
+      <h3>Victim-Offender Relationships</h3>
+      <ul class="result-list i-relationships"></ul>
+      <h3>Property</h3>
+      <ul class="result-list i-property"></ul>
+      <h3>Narrative</h3>
+      <p class="i-narrative"></p>
+    </section>
+  </template>
+
+  <template id="tpl-crashes">
+    <section class="panel">
+      <h2>Crash Reports</h2>
+      <button id="crash-new-btn" class="btn btn-primary">+ New Crash Report</button>
+
+      <form id="crash-form" class="issue-form" hidden novalidate>
+        <fieldset>
+          <legend>Crash Details</legend>
+          <label for="cr-report-number">Report Number</label>
+          <input id="cr-report-number" required />
+          <label for="cr-crash-date">Crash Date</label>
+          <input id="cr-crash-date" type="date" required />
+          <label for="cr-crash-time">Crash Time</label>
+          <input id="cr-crash-time" type="time" required />
+          <label for="cr-location">Location</label>
+          <input id="cr-location" required />
+          <div class="gps-row">
+            <label for="cr-latitude">Latitude (optional)</label>
+            <input id="cr-latitude" type="number" step="any" min="-90" max="90" />
+            <label for="cr-longitude">Longitude (optional)</label>
+            <input id="cr-longitude" type="number" step="any" min="-180" max="180" />
+            <button type="button" id="cr-use-location" class="btn btn-secondary">Use My Location</button>
+            <p id="cr-location-status" class="hint"></p>
+          </div>
+          <label for="cr-weather">Weather Condition</label>
+          <select id="cr-weather" required></select>
+          <label for="cr-road-surface">Road Surface Condition</label>
+          <select id="cr-road-surface" required></select>
+          <label for="cr-light">Light Condition</label>
+          <select id="cr-light" required></select>
+          <label for="cr-severity">Crash Severity</label>
+          <select id="cr-severity" required></select>
+          <label for="cr-narrative">Narrative</label>
+          <textarea id="cr-narrative" rows="3"></textarea>
+        </fieldset>
+
+        <fieldset>
+          <legend>Vehicles <span class="hint">(1-20 required)</span></legend>
+          <div id="crash-vehicle-rows"></div>
+          <button type="button" id="crash-add-vehicle" class="btn btn-secondary">+ Add Vehicle</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Persons <span class="hint">(drivers, passengers, pedestrians, cyclists)</span></legend>
+          <div id="crash-person-rows"></div>
+          <button type="button" id="crash-add-person" class="btn btn-secondary">+ Add Person</button>
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary btn-block">Submit Crash Report</button>
+        <p id="crash-form-error" class="error-text" hidden></p>
+        <p id="crash-form-success" class="success-text" hidden></p>
+      </form>
+
+      <ul id="crashes-list" class="result-list"></ul>
+    </section>
+  </template>
+
+  <template id="tpl-crash-detail">
+    <section class="panel">
+      <button class="btn btn-link back-btn">&larr; Back to crashes</button>
+      <div class="report-letterhead">
+        <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
+        <div>
+          <div class="report-dept-name">Gates Police Department</div>
+          <div class="report-dept-contact">10085 2nd Street, Gates, TN 38037 &middot; (731) 290-0614</div>
+        </div>
+      </div>
+      <h2 class="cr-report-number"></h2>
+      <dl class="detail-grid">
+        <dt>Crash Date</dt><dd class="cr-crash-date"></dd>
+        <dt>Location</dt><dd class="cr-location"></dd>
+        <dt>Severity</dt><dd class="cr-severity"></dd>
+        <dt>Weather</dt><dd class="cr-weather"></dd>
+        <dt>Road Surface</dt><dd class="cr-road-surface"></dd>
+        <dt>Light</dt><dd class="cr-light"></dd>
+        <dt>Officer</dt><dd class="cr-officer"></dd>
+      </dl>
+      <h3>Vehicles</h3>
+      <ul class="result-list cr-vehicles"></ul>
+      <h3>Persons</h3>
+      <ul class="result-list cr-persons"></ul>
+      <h3>Narrative</h3>
+      <p class="cr-narrative"></p>
+    </section>
+  </template>
+
+  <template id="tpl-evidence">
+    <section class="panel">
+      <h2>Evidence</h2>
+      <button id="evidence-new-btn" class="btn btn-primary">+ Log Evidence Item</button>
+
+      <form id="evidence-form" class="issue-form" hidden novalidate>
+        <fieldset>
+          <legend>Linked Case</legend>
+          <label for="ev-case-type">Case Type</label>
+          <select id="ev-case-type" required>
+            <option value="incidents">Incident Report</option>
+            <option value="crashes">Crash Report</option>
+          </select>
+          <label for="ev-case-number">Case / Report Number</label>
+          <input id="ev-case-number" required />
+          <button type="button" id="ev-find-case" class="btn btn-secondary">Find Case</button>
+          <p id="ev-case-status" class="hint"></p>
+          <ul id="ev-case-results" class="result-list"></ul>
+        </fieldset>
+
+        <fieldset>
+          <legend>Item Details</legend>
+          <label for="ev-item-number">Evidence Item Number</label>
+          <input id="ev-item-number" required />
+          <label for="ev-category">Category</label>
+          <select id="ev-category" required></select>
+          <label for="ev-description">Description</label>
+          <textarea id="ev-description" rows="2" required></textarea>
+          <label for="ev-quantity">Quantity</label>
+          <input id="ev-quantity" type="number" min="1" value="1" required />
+          <label for="ev-location-collected">Location Collected</label>
+          <input id="ev-location-collected" />
+          <label for="ev-date-collected">Date Collected</label>
+          <input id="ev-date-collected" type="date" required />
+          <label for="ev-storage-location">Storage Location</label>
+          <input id="ev-storage-location" placeholder="e.g. Locker A-12" />
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary btn-block">Submit Evidence Item</button>
+        <p id="evidence-form-error" class="error-text" hidden></p>
+        <p id="evidence-form-success" class="success-text" hidden></p>
+      </form>
+
+      <ul id="evidence-list" class="result-list"></ul>
+    </section>
+  </template>
+
+  <template id="tpl-evidence-detail">
+    <section class="panel">
+      <button class="btn btn-link back-btn">&larr; Back to evidence</button>
+      <div class="report-letterhead">
+        <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
+        <div>
+          <div class="report-dept-name">Gates Police Department</div>
+          <div class="report-dept-contact">10085 2nd Street, Gates, TN 38037 &middot; (731) 290-0614</div>
+        </div>
+      </div>
+      <h2 class="ev-item-number"></h2>
+      <dl class="detail-grid">
+        <dt>Category</dt><dd class="ev-category"></dd>
+        <dt>Description</dt><dd class="ev-description"></dd>
+        <dt>Quantity</dt><dd class="ev-quantity"></dd>
+        <dt>Status</dt><dd class="ev-status"></dd>
+        <dt>Date Collected</dt><dd class="ev-date-collected"></dd>
+        <dt>Location Collected</dt><dd class="ev-location-collected"></dd>
+        <dt>Storage Location</dt><dd class="ev-storage-location"></dd>
+        <dt>Linked Case</dt><dd class="ev-linked-case"></dd>
+        <dt>Collected By</dt><dd class="ev-collected-by"></dd>
+      </dl>
+
+      <form id="evidence-status-form">
+        <label for="ev-status-select">Update Status</label>
+        <select id="ev-status-select"></select>
+        <label for="ev-disposition-notes">Disposition Notes</label>
+        <textarea id="ev-disposition-notes" rows="2"></textarea>
+        <button type="submit" class="btn btn-secondary">Save Status</button>
+        <p class="ev-status-error error-text" hidden></p>
+        <p class="ev-status-success success-text" hidden></p>
+      </form>
+
+      <h3>Chain of Custody</h3>
+      <ul class="result-list ev-custody-log"></ul>
+
+      <form id="custody-form">
+        <label for="cu-action">Action</label>
+        <select id="cu-action" required></select>
+        <label for="cu-from">From Custodian</label>
+        <input id="cu-from" />
+        <label for="cu-to">To Custodian</label>
+        <input id="cu-to" />
+        <label for="cu-notes">Notes</label>
+        <textarea id="cu-notes" rows="2"></textarea>
+        <button type="submit" class="btn btn-primary">Add Custody Entry</button>
+        <p class="cu-error error-text" hidden></p>
+        <p class="cu-success success-text" hidden></p>
+      </form>
     </section>
   </template>
 

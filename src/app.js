@@ -17,6 +17,7 @@ const incidentsRoutes = require('./routes/incidents.routes');
 const crashesRoutes = require('./routes/crashes.routes');
 const tibrsRoutes = require('./routes/tibrs.routes');
 const usersRoutes = require('./routes/users.routes');
+const evidenceRoutes = require('./routes/evidence.routes');
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use('/api/incidents', incidentsRoutes);
 app.use('/api/crashes', crashesRoutes);
 app.use('/api/tibrs', tibrsRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/evidence', evidenceRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

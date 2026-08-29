@@ -277,6 +277,20 @@ legend {
 
 .pager { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
 
+.dyn-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px 12px;
+  margin: 10px 0;
+  background: var(--bg);
+}
+.dyn-row .remove-row {
+  margin-top: 8px;
+  color: var(--danger);
+}
+#ev-case-results .result-item,
+#ev-case-status { margin-top: 6px; }
+
 @media (max-width: 420px) {
   .detail-grid { grid-template-columns: 110px 1fr; font-size: 0.9rem; }
 }
