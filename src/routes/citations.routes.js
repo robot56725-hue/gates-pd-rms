@@ -28,7 +28,7 @@ router.post(
   '/',
   authenticate,
   withDbAudit('e_citations'),
-  requireRoles('Patrol_Officer', 'Supervisor'),
+  requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
   createCitation
 );
 

@@ -18,7 +18,7 @@ router.post(
   '/',
   authenticate,
   withDbAudit('crash_reports'),
-  requireRoles('Patrol_Officer', 'Supervisor'),
+  requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
   createCrash
 );
 

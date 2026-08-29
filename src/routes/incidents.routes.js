@@ -26,7 +26,7 @@ router.post(
   '/',
   authenticate,
   withDbAudit('incidents'),
-  requireRoles('Patrol_Officer', 'Supervisor'),
+  requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
   createIncident
 );
 
@@ -34,7 +34,7 @@ router.patch(
   '/:id',
   authenticate,
   withDbAudit('incidents'),
-  requireRoles('Patrol_Officer', 'Supervisor'),
+  requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
   updateIncident
 );
 
@@ -42,7 +42,7 @@ router.post(
   '/:id/narratives',
   authenticate,
   withDbAudit('incident_narratives'),
-  requireRoles('Patrol_Officer', 'Supervisor'),
+  requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
   addNarrative
 );
 

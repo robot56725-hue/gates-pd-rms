@@ -20,7 +20,7 @@ router.patch(
   '/citations/:id',
   authenticate,
   withDbAudit('court_ledger'),
-  requireRoles('Court_Clerk'),
+  requireRoles('Court_Clerk', 'System_Admin'),
   updateCourtLedger
 );
 
