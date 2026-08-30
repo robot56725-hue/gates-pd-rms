@@ -23,6 +23,8 @@ const judgesRoutes = require('./routes/judges.routes');
 const docketsRoutes = require('./routes/dockets.routes');
 const remindersRoutes = require('./routes/reminders.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
+const paymentsRoutes = require('./routes/payments.routes');
+const fundCategoriesRoutes = require('./routes/fundCategories.routes');
 
 const app = express();
 
@@ -67,6 +69,8 @@ app.use('/api/judges', judgesRoutes);
 app.use('/api/dockets', docketsRoutes);
 app.use('/api/reminders', remindersRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/payments', paymentsRoutes);
+app.use('/api/fund-categories', fundCategoriesRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
