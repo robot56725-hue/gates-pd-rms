@@ -8,7 +8,6 @@ const {
   listEvidence,
   getEvidenceById,
   updateEvidence,
-  approveEvidence,
   addCustodyEntry,
 } = require('../controllers/evidence.controller');
 
@@ -43,17 +42,6 @@ router.post(
   withDbAudit('evidence_custody_log'),
   requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
   addCustodyEntry
-);
-
-// Approve/Reject -- Supervisor and System_Admin only. Deliberately excludes
-// Patrol_Officer: an officer should not be able to approve their own
-// evidence submission.
-router.patch(
-  '/:id/approval',
-  authenticate,
-  withDbAudit('evidence_items'),
-  requireRoles('Supervisor', 'System_Admin'),
-  approveEvidence
 );
 
 module.exports = router;

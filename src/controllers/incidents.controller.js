@@ -10,7 +10,6 @@ const {
 } = require('../validation/incidentSchema');
 const { idParamSchema } = require('../validation/common');
 const { findOrCreatePerson } = require('../services/personService');
-const { makeApprovalHandler } = require('../utils/approval');
 
 /**
  * Inserts one incident_persons row per entry in `persons`, resolving each to
@@ -188,8 +187,6 @@ const createIncident = asyncHandler(async (req, res) => {
 const INCIDENT_LIST_COLUMNS = `
   i.id, i.case_number, i.occurrence_date, i.location_address, i.location_type,
   i.status, i.exceptional_clearance, i.cleared_date,
-  i.approval_status, i.approved_by_id, i.approved_at, i.approval_notes,
-  approver.full_name AS approved_by_name,
   u.full_name AS officer_name, u.badge_number AS officer_badge
 `;
 
@@ -212,7 +209,6 @@ const listIncidents = asyncHandler(async (req, res) => {
     `SELECT ${INCIDENT_LIST_COLUMNS}, count(*) OVER() AS total_count
        FROM incidents i
        JOIN users u ON u.id = i.reporting_officer_id
-       LEFT JOIN users approver ON approver.id = i.approved_by_id
       WHERE ($1::uuid IS NULL OR i.reporting_officer_id = $1)
         AND ($2::text IS NULL OR i.status::text = $2)
         AND (
@@ -253,7 +249,6 @@ const getIncidentById = asyncHandler(async (req, res) => {
             i.created_at, i.updated_at, i.tibrs_submitted_at, i.tibrs_submission_batch
        FROM incidents i
        JOIN users u ON u.id = i.reporting_officer_id
-       LEFT JOIN users approver ON approver.id = i.approved_by_id
       WHERE i.id = $1`,
     [params.id]
   );
@@ -327,11 +322,10 @@ const getIncidentById = asyncHandler(async (req, res) => {
 /**
  * PATCH /api/incidents/:id
  *
- * Covers status/clearance disposition (usually settled well after the
- * incident is first opened) plus the core top-level fields (location,
- * occurrence date/time, GPS) for correcting a mistake made at intake.
- * Re-working the nested offenses/persons/relationships/property collections
- * is a rarer, higher-stakes correction handled separately, not through this
+ * Deliberately narrow: status and clearance disposition are usually settled
+ * well after the incident is first opened (an investigation concludes, a
+ * suspect is arrested elsewhere, etc). Every other field is part of the
+ * historical record of what was reported and is not editable through this
  * endpoint.
  */
 const updateIncident = asyncHandler(async (req, res) => {
@@ -348,36 +342,18 @@ const updateIncident = asyncHandler(async (req, res) => {
         SET status                = COALESCE($1, status),
             exceptional_clearance = COALESCE($2, exceptional_clearance),
             cleared_date          = COALESCE($3, cleared_date),
-            occurrence_date       = COALESCE($4, occurrence_date),
-            location_address      = COALESCE($5, location_address),
-            location_type         = COALESCE($6, location_type),
-            latitude              = COALESCE($7, latitude),
-            longitude             = COALESCE($8, longitude),
             updated_at            = now()
-      WHERE id = $9
-      RETURNING id, case_number, status, exceptional_clearance, cleared_date,
-                occurrence_date, location_address, location_type, latitude, longitude, updated_at`,
-    [
-      updates.status ?? null,
-      updates.exceptional_clearance ?? null,
-      updates.cleared_date ?? null,
-      updates.occurrence_date ?? null,
-      updates.location_address ? updates.location_address.trim() : null,
-      updates.location_type ?? null,
-      updates.latitude ?? null,
-      updates.longitude ?? null,
-      params.id,
-    ]
+      WHERE id = $4
+      RETURNING id, case_number, status, exceptional_clearance, cleared_date, updated_at`,
+    [updates.status ?? null, updates.exceptional_clearance ?? null, updates.cleared_date ?? null, params.id]
   );
 
   if (!result.rows[0]) {
     throw new AppError(404, 'Incident not found.');
   }
 
-  res.status(200).json({ ...result.rows[0], outcome: 'updated' });
+  res.status(200).json(result.rows[0]);
 });
-
-const approveIncident = makeApprovalHandler('incidents', 'Incident not found.');
 
 /**
  * POST /api/incidents/:id/narratives
@@ -417,11 +393,4 @@ const addNarrative = asyncHandler(async (req, res) => {
   res.status(201).json(inserted.rows[0]);
 });
 
-module.exports = {
-  createIncident,
-  listIncidents,
-  getIncidentById,
-  updateIncident,
-  approveIncident,
-  addNarrative,
-};
+module.exports = { createIncident, listIncidents, getIncidentById, updateIncident, addNarrative };

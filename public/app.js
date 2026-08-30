@@ -44,19 +44,6 @@ function clearSession() {
 }
 
 /**
- * True if the signed-in account's primary role OR any of its
- * additional_roles (db/migrations/008_..._multirole_...sql) matches one of
- * the given roles -- mirrors requireRoles() server side (src/middleware/auth.js),
- * which also checks the full roles array, not just the primary role.
- */
-function hasAnyRole(...roles) {
-  const profile = getProfile();
-  if (!profile) return false;
-  const userRoles = profile.roles && profile.roles.length > 0 ? profile.roles : [profile.role];
-  return roles.some((r) => userRoles.includes(r));
-}
-
-/**
  * Wrapper around fetch(): attaches the bearer token, parses JSON, and
  * forces a return to the login screen on a 401 (expired/invalid token)
  * rather than leaving the user staring at a silently-broken screen.
@@ -125,23 +112,21 @@ function showApp() {
   document.getElementById('user-name').textContent = profile ? profile.badge_number : '';
   document.getElementById('user-role').textContent = profile ? profile.role.replace(/_/g, ' ') : '';
 
-  // Only sworn personnel who can actually issue citations see that tab. Uses
-  // hasAnyRole() (primary role OR additional_roles), not just profile.role,
-  // so a multi-role account (db/migrations/008_..._multirole_...sql) sees
-  // every tab its granted roles allow -- e.g. a Court_Clerk also granted
-  // Patrol_Officer as an additional role still sees Issue Citation.
-  document.getElementById('nav-issue').hidden = !hasAnyRole('Patrol_Officer', 'Supervisor');
+  // Only sworn personnel who can actually issue citations see that tab.
+  const canIssue = profile && ['Patrol_Officer', 'Supervisor'].includes(profile.role);
+  document.getElementById('nav-issue').hidden = !canIssue;
 
   // Personnel management is System_Admin only -- matches the API's own
   // requireRoles('System_Admin') guard on /api/users (see users.routes.js).
-  document.getElementById('nav-personnel').hidden = !hasAnyRole('System_Admin');
+  const canManagePersonnel = profile && profile.role === 'System_Admin';
+  document.getElementById('nav-personnel').hidden = !canManagePersonnel;
 
   // Incidents/Crashes/Evidence tabs -- same role set as the API's own
   // requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin') guard on
   // POST /api/incidents, /api/crashes, /api/evidence. Court_Clerk has no
   // reason to file these, so the tab (which is create-first, same as the
-  // Issue Citation tab) stays hidden unless that's one of the account's roles.
-  const canOperateCases = hasAnyRole('Patrol_Officer', 'Supervisor', 'System_Admin');
+  // Issue Citation tab) stays hidden for that role.
+  const canOperateCases = profile && ['Patrol_Officer', 'Supervisor', 'System_Admin'].includes(profile.role);
   document.getElementById('nav-incidents').hidden = !canOperateCases;
   document.getElementById('nav-crashes').hidden = !canOperateCases;
   document.getElementById('nav-evidence').hidden = !canOperateCases;
@@ -160,12 +145,7 @@ loginForm.addEventListener('submit', async (e) => {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
-    setSession(data.token, {
-      role: data.role,
-      roles: data.roles,
-      badge_number: data.badge_number,
-      full_name: data.full_name,
-    });
+    setSession(data.token, { role: data.role, badge_number: data.badge_number });
     showApp();
   } catch (err) {
     loginError.textContent = err.message;
@@ -231,91 +211,6 @@ function fmtStatus(value) {
 }
 
 // ------------------------------------------------------------------
-// Shared: approval workflow, edit-toggle, print -- reused across the
-// citation/incident/crash/evidence detail views, which all carry the same
-// approval_status/approved_by/approved_at/approval_notes columns (see
-// db/migrations/008_..._multirole_...sql) and the same PATCH /:id/approval
-// shape (src/utils/approval.js).
-// ------------------------------------------------------------------
-
-function approvalBadgeClass(status) {
-  if (status === 'Approved') return 'badge-approved';
-  if (status === 'Rejected') return 'badge-rejected';
-  return 'badge-pending';
-}
-
-/**
- * Renders the approval badge + detail line, and -- only for a
- * Supervisor/System_Admin viewer -- wires the Approve/Reject buttons.
- * `record` is the API response for the case (must carry approval_status,
- * approved_by_name, approved_at, approval_notes). `apiPath` is the route
- * segment ('citations'/'incidents'/'crashes'/'evidence'). `onSaved` re-runs
- * after a successful decision so the badge/detail line reflect it.
- */
-function wireApprovalSection({ record, id, apiPath, badgeEl, detailEl, formEl, notesEl, errorEl, successEl, onSaved }) {
-  const status = record.approval_status || 'Pending';
-  badgeEl.innerHTML = `<span class="${approvalBadgeClass(status)}">${status}</span>`;
-  detailEl.textContent = record.approved_by_name
-    ? `${status} by ${record.approved_by_name} on ${fmtDateTime(record.approved_at)}${
-        record.approval_notes ? ' — ' + record.approval_notes : ''
-      }`
-    : 'Awaiting Supervisor/System_Admin review.';
-
-  // A Patrol_Officer should not be able to approve their own submission --
-  // matches the API's requireRoles('Supervisor', 'System_Admin') guard on
-  // every PATCH /:id/approval route.
-  if (!hasAnyRole('Supervisor', 'System_Admin')) {
-    formEl.hidden = true;
-    return;
-  }
-  formEl.hidden = false;
-  notesEl.value = '';
-  errorEl.hidden = true;
-  successEl.hidden = true;
-
-  formEl.querySelectorAll('[data-decision]').forEach((btn) => {
-    btn.onclick = async () => {
-      errorEl.hidden = true;
-      successEl.hidden = true;
-      try {
-        await apiFetch(`/api/${apiPath}/${id}/approval`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            approval_status: btn.dataset.decision,
-            approval_notes: notesEl.value.trim() || undefined,
-          }),
-        });
-        successEl.textContent = `Marked ${btn.dataset.decision}.`;
-        successEl.hidden = false;
-        // Give the confirmation a moment on screen before onSaved
-        // potentially re-mounts this whole view (citation/incident/crash
-        // detail all do a full mount() on refresh, which would otherwise
-        // wipe this message before it ever paints -- same fix as the
-        // personnel edit form's save handler).
-        if (onSaved) setTimeout(onSaved, 900);
-      } catch (err) {
-        errorEl.textContent = formErrorMessage(err);
-        errorEl.hidden = false;
-      }
-    };
-  });
-}
-
-/** Shows/hides an edit form behind a toggle button -- same pattern on every detail view. */
-function wireEditToggle(toggleBtn, formEl) {
-  toggleBtn.onclick = () => {
-    formEl.hidden = !formEl.hidden;
-  };
-}
-
-/** Every report detail view has an identical Print button -- browser print,
- * scoped by the .no-print CSS class (styles.css) to hide nav/buttons/forms
- * and print only the letterhead + report content. */
-function wirePrintButton(btn) {
-  if (btn) btn.onclick = () => window.print();
-}
-
-// ------------------------------------------------------------------
 // Search view
 // ------------------------------------------------------------------
 
@@ -347,11 +242,6 @@ async function runSearch(scope, q) {
   statusEl.textContent = 'Searching...';
   resultsEl.innerHTML = '';
 
-  // incidents/crashes/evidence don't have their own /api/<scope>?q= route
-  // named identically to their nav tabs' underlying endpoints -- they do
-  // (see incidents.routes.js / crashes.routes.js / evidence.routes.js, all
-  // of which accept the same q= free-text filter citations/persons/vehicles
-  // already use), so this reuses the exact same apiFetch call shape.
   try {
     const data = await apiFetch(`/api/${scope}?q=${encodeURIComponent(q)}&limit=25`);
     statusEl.textContent = `${data.total} result${data.total === 1 ? '' : 's'}`;
@@ -366,22 +256,10 @@ async function runSearch(scope, q) {
         li.innerHTML = `<div class="r-title">${escapeHtml(row.plate_number)} (${escapeHtml(row.plate_state)})</div>
           <div class="r-sub">${escapeHtml(row.year || '')} ${escapeHtml(row.make)} ${escapeHtml(row.model)} — ${escapeHtml(row.color)}</div>`;
         li.addEventListener('click', () => renderVehicleDetail(row.id));
-      } else if (scope === 'citations') {
+      } else {
         li.innerHTML = `<div class="r-title">${escapeHtml(row.citation_number)}</div>
           <div class="r-sub">${escapeHtml(row.violator_last_name)}, ${escapeHtml(row.violator_first_name)} — ${fmtStatus(row.court_status)}</div>`;
         li.addEventListener('click', () => renderCitationDetail(row.id, 'search'));
-      } else if (scope === 'incidents') {
-        li.innerHTML = `<div class="r-title">${escapeHtml(row.case_number)}</div>
-          <div class="r-sub">${escapeHtml(row.location_address)} — ${fmtStatus(row.status)}</div>`;
-        li.addEventListener('click', () => renderIncidentDetail(row.id));
-      } else if (scope === 'crashes') {
-        li.innerHTML = `<div class="r-title">${escapeHtml(row.report_number)}</div>
-          <div class="r-sub">${escapeHtml(row.location)} — ${humanize(row.crash_severity)}</div>`;
-        li.addEventListener('click', () => renderCrashDetail(row.id));
-      } else if (scope === 'evidence') {
-        li.innerHTML = `<div class="r-title">${escapeHtml(row.item_number)} — ${humanize(row.category)}</div>
-          <div class="r-sub">${escapeHtml(row.description)} — ${fmtStatus(row.status)}</div>`;
-        li.addEventListener('click', () => renderEvidenceDetail(row.id));
       }
       resultsEl.appendChild(li);
     });
@@ -536,7 +414,6 @@ async function loadCitationsPage() {
 async function renderCitationDetail(id, backTo) {
   mount('tpl-citation-detail');
   mainContent.querySelector('.back-btn').addEventListener('click', () => navigate(backTo || 'citations'));
-  wirePrintButton(mainContent.querySelector('.print-btn'));
 
   try {
     const c = await apiFetch(`/api/citations/${id}`);
@@ -555,92 +432,8 @@ async function renderCitationDetail(id, backTo) {
     mainContent.querySelector('.c-fine').textContent = fmtMoney(c.fine_amount_due);
     mainContent.querySelector('.c-paid').textContent = fmtMoney(c.amount_paid);
 
-    const sigImg = mainContent.querySelector('.c-signature-img');
-    const sigRefused = mainContent.querySelector('.c-signature-refused');
-    if (c.violator_signature) {
-      sigImg.src = c.violator_signature;
-      sigImg.hidden = false;
-      sigRefused.hidden = true;
-    } else if (c.violator_refused_to_sign) {
-      sigImg.hidden = true;
-      sigRefused.hidden = false;
-    }
-
-    wireApprovalSection({
-      record: c,
-      id,
-      apiPath: 'citations',
-      badgeEl: mainContent.querySelector('.c-approval-badge'),
-      detailEl: mainContent.querySelector('.c-approval-detail'),
-      formEl: document.getElementById('citation-approval-form'),
-      notesEl: document.getElementById('citation-approval-notes'),
-      errorEl: mainContent.querySelector('.c-approval-error'),
-      successEl: mainContent.querySelector('.c-approval-success'),
-      onSaved: () => renderCitationDetail(id, backTo),
-    });
-
-    const editToggle = document.getElementById('citation-edit-toggle');
-    const editForm = document.getElementById('citation-edit-form');
-    if (hasAnyRole('Patrol_Officer', 'Supervisor', 'System_Admin')) {
-      editToggle.hidden = false;
-      wireEditToggle(editToggle, editForm);
-      document.getElementById('ce-description').value = c.offense_description || '';
-      document.getElementById('ce-tca').value = c.tca_code || '';
-      document.getElementById('ce-location').value = c.location || '';
-      document.getElementById('ce-latitude').value = c.latitude ?? '';
-      document.getElementById('ce-longitude').value = c.longitude ?? '';
-      if (c.court_date) {
-        const d = new Date(c.court_date);
-        if (!Number.isNaN(d.getTime())) {
-          document.getElementById('ce-court-date').value = d.toISOString().slice(0, 10);
-          document.getElementById('ce-court-time').value = d.toISOString().slice(11, 16);
-        }
-      }
-      document.getElementById('ce-court-location').value = c.court_location || '';
-      document.getElementById('ce-court-name').value = c.court_name || '';
-
-      editForm.onsubmit = async (e) => {
-        e.preventDefault();
-        const errorEl = mainContent.querySelector('.ce-error');
-        const successEl = mainContent.querySelector('.ce-success');
-        errorEl.hidden = true;
-        successEl.hidden = true;
-
-        const val = (elId) => document.getElementById(elId).value.trim();
-        const body = {};
-        if (val('ce-description')) body.offense_description = val('ce-description');
-        if (val('ce-tca')) body.tca_code = val('ce-tca');
-        if (val('ce-location')) body.location = val('ce-location');
-        if (val('ce-latitude') !== '' && val('ce-longitude') !== '') {
-          body.latitude = Number(val('ce-latitude'));
-          body.longitude = Number(val('ce-longitude'));
-        }
-        if (val('ce-court-date') && val('ce-court-time')) {
-          body.court_date = val('ce-court-date');
-          body.court_time = val('ce-court-time');
-        }
-        if (val('ce-court-location')) body.court_location = val('ce-court-location');
-        if (val('ce-court-name')) body.court_name = val('ce-court-name');
-
-        try {
-          await apiFetch(`/api/citations/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-          successEl.textContent = 'Citation updated.';
-          successEl.hidden = false;
-          // See the identical note on the approval save handler above --
-          // renderCitationDetail() re-mounts the view, which would wipe
-          // this message before it ever paints if called immediately.
-          setTimeout(() => renderCitationDetail(id, backTo), 900);
-        } catch (err) {
-          errorEl.textContent = formErrorMessage(err);
-          errorEl.hidden = false;
-        }
-      };
-    } else {
-      editToggle.hidden = true;
-      editForm.hidden = true;
-    }
-
-    if (hasAnyRole('Court_Clerk')) {
+    const profile = getProfile();
+    if (profile && profile.role === 'Court_Clerk') {
       const form = document.getElementById('ledger-form');
       form.hidden = false;
       if (c.court_status) document.getElementById('ledger-status').value = c.court_status;
@@ -679,10 +472,7 @@ async function renderCitationDetail(id, backTo) {
           });
           successEl.textContent = 'Disposition saved.';
           successEl.hidden = false;
-          // See the note on the citation edit save handler below --
-          // renderCitationDetail() re-mounts the view immediately, which
-          // was wiping this message before it ever painted.
-          setTimeout(() => renderCitationDetail(id, backTo), 900);
+          renderCitationDetail(id, backTo);
         } catch (err) {
           errorEl.textContent = err.message;
           errorEl.hidden = false;
@@ -698,82 +488,9 @@ async function renderCitationDetail(id, backTo) {
 // Issue citation form
 // ------------------------------------------------------------------
 
-/**
- * Wires an HTML5 canvas as a simple signature pad -- pointer events cover
- * mouse, touch, and stylus input in one listener set (no separate
- * touchstart/mousedown handling needed). Returns { hasSignature, clear,
- * toDataUrl } so the caller can check/reset/capture it without reaching
- * back into canvas internals.
- */
-function setupSignaturePad(canvas) {
-  const ctx = canvas.getContext('2d');
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = '#1c2431';
-  let drawing = false;
-  let hasSignature = false;
-
-  function pos(e) {
-    const rect = canvas.getBoundingClientRect();
-    // The canvas's drawing-buffer size (width/height attributes) can differ
-    // from its on-screen CSS size, so map pointer coordinates through the
-    // ratio rather than assuming 1:1 -- otherwise strokes land in the wrong
-    // place on any layout where CSS scales the canvas down.
-    return {
-      x: ((e.clientX - rect.left) / rect.width) * canvas.width,
-      y: ((e.clientY - rect.top) / rect.height) * canvas.height,
-    };
-  }
-
-  canvas.addEventListener('pointerdown', (e) => {
-    drawing = true;
-    hasSignature = true;
-    const p = pos(e);
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-    canvas.setPointerCapture(e.pointerId);
-  });
-  canvas.addEventListener('pointermove', (e) => {
-    if (!drawing) return;
-    const p = pos(e);
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
-  });
-  const stop = () => {
-    drawing = false;
-  };
-  canvas.addEventListener('pointerup', stop);
-  canvas.addEventListener('pointercancel', stop);
-  canvas.addEventListener('pointerleave', stop);
-
-  return {
-    get hasSignature() {
-      return hasSignature;
-    },
-    clear() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      hasSignature = false;
-    },
-    toDataUrl() {
-      return canvas.toDataURL('image/png');
-    },
-  };
-}
-
 function renderIssueForm() {
   mount('tpl-issue');
   const form = document.getElementById('issue-form');
-
-  const signaturePad = setupSignaturePad(document.getElementById('i-signature-pad'));
-  const signatureRefused = document.getElementById('i-signature-refused');
-  document.getElementById('i-signature-clear').addEventListener('click', () => signaturePad.clear());
-  // Signing and "refused to sign" are mutually exclusive (see the
-  // .xor('violator_signature', 'violator_refused_to_sign') note in
-  // src/validation/citationSchema.js) -- checking refused clears any drawn
-  // signature so the two can never both be sent.
-  signatureRefused.addEventListener('change', () => {
-    if (signatureRefused.checked) signaturePad.clear();
-  });
 
   const useLocationBtn = document.getElementById('i-use-location');
   const locationStatus = document.getElementById('i-location-status');
@@ -857,19 +574,6 @@ function renderIssueForm() {
       },
     };
 
-    // Exactly one of these two, matching the server's .xor() -- see
-    // src/validation/citationSchema.js's signatureSchema comment for why
-    // neither field carries a default there.
-    if (signatureRefused.checked) {
-      payload.violator_refused_to_sign = true;
-    } else if (signaturePad.hasSignature) {
-      payload.violator_signature = signaturePad.toDataUrl();
-    } else {
-      errorEl.textContent = 'Have the violator sign above, or check "Violator Refused to Sign".';
-      errorEl.hidden = false;
-      return;
-    }
-
     try {
       const result = await apiFetch('/api/citations', {
         method: 'POST',
@@ -878,7 +582,6 @@ function renderIssueForm() {
       successEl.textContent = `Citation ${result.citation_number} submitted. Court filing deadline: ${fmtDate(result.court_filing_deadline)}.`;
       successEl.hidden = false;
       form.reset();
-      signaturePad.clear();
     } catch (err) {
       let message = err.message;
       if (Array.isArray(err.details)) {
@@ -915,10 +618,6 @@ async function renderPersonnel() {
     errorEl.hidden = true;
     successEl.hidden = true;
 
-    const additionalRoles = Array.from(
-      document.querySelectorAll('#pn-additional-roles input:checked')
-    ).map((el) => el.value);
-
     const payload = {
       username: document.getElementById('pn-username').value.trim(),
       password: document.getElementById('pn-password').value,
@@ -927,7 +626,6 @@ async function renderPersonnel() {
       officer_rank: document.getElementById('pn-rank').value.trim() || undefined,
       agency: document.getElementById('pn-agency').value.trim(),
       role: document.getElementById('pn-role').value,
-      additional_roles: additionalRoles,
     };
 
     try {
@@ -950,11 +648,6 @@ async function renderPersonnel() {
   await loadPersonnelList(listEl, myProfile);
 }
 
-// Matches src/validation/userSchema.js's ROLE_VALUES (VALID_ROLES in
-// src/middleware/auth.js) -- kept in sync by hand like every other enum
-// list in this file.
-const PERSONNEL_ROLE_VALUES = ['Patrol_Officer', 'Supervisor', 'Court_Clerk', 'System_Admin'];
-
 async function loadPersonnelList(listEl, myProfile) {
   listEl.innerHTML = '<li class="hint">Loading...</li>';
   try {
@@ -968,26 +661,15 @@ async function loadPersonnelList(listEl, myProfile) {
       const li = document.createElement('li');
       li.className = 'result-item';
       const isSelf = myProfile && myProfile.badge_number === u.badge_number;
-      const allRoles = [u.role, ...(u.additional_roles || [])];
       li.innerHTML = `<div class="r-title">${escapeHtml(u.full_name)} — ${escapeHtml(u.username)} ${
         u.is_active ? '' : '<span class="badge">Deactivated</span>'
       }</div>
-        <div class="r-sub">${escapeHtml(allRoles.map(humanize).join(', '))} · Badge ${escapeHtml(u.badge_number)} · ${escapeHtml(
+        <div class="r-sub">${escapeHtml(u.role.replace(/_/g, ' '))} · Badge ${escapeHtml(u.badge_number)} · ${escapeHtml(
         u.officer_rank || ''
       )} · ${escapeHtml(u.agency)}</div>`;
 
-      const actionsDiv = document.createElement('div');
-      actionsDiv.className = 'personnel-actions';
-
-      const editBtn = document.createElement('button');
-      editBtn.type = 'button';
-      editBtn.className = 'btn btn-secondary';
-      editBtn.textContent = 'Edit';
-      actionsDiv.appendChild(editBtn);
-
       if (!isSelf) {
         const toggleBtn = document.createElement('button');
-        toggleBtn.type = 'button';
         toggleBtn.className = 'btn btn-secondary';
         toggleBtn.textContent = u.is_active ? 'Deactivate' : 'Reactivate';
         toggleBtn.addEventListener('click', async () => {
@@ -1001,101 +683,9 @@ async function loadPersonnelList(listEl, myProfile) {
             alert(err.message);
           }
         });
-        actionsDiv.appendChild(toggleBtn);
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.type = 'button';
-        deleteBtn.className = 'btn btn-secondary btn-danger';
-        deleteBtn.textContent = 'Delete';
-        deleteBtn.addEventListener('click', async () => {
-          if (!confirm(`Permanently delete the account "${u.username}"? This cannot be undone.`)) return;
-          try {
-            await apiFetch(`/api/users/${u.id}`, { method: 'DELETE' });
-            loadPersonnelList(listEl, myProfile);
-          } catch (err) {
-            // A 409 here means the account has citations/incidents/crashes/
-            // evidence on file -- src/controllers/users.controller.js's
-            // deleteUser already gives a clear message for that case, so
-            // just surface it rather than adding a second one.
-            alert(err.message);
-          }
-        });
-        actionsDiv.appendChild(deleteBtn);
+        li.appendChild(toggleBtn);
       }
 
-      li.appendChild(actionsDiv);
-
-      // Inline edit form -- built once per row, toggled by Edit. Primary
-      // role is a single <select>; additional_roles is a checkbox group
-      // (see db/migrations/008_..._multirole_...sql) that includes every
-      // role, including the primary one -- the server dedupes on save
-      // (see updateUser in src/controllers/users.controller.js), so
-      // checking a role that's already primary is harmless.
-      const editForm = document.createElement('form');
-      editForm.className = 'personnel-edit-form';
-      editForm.hidden = true;
-      editForm.innerHTML = `
-        <label>Full Name</label><input class="pe-full-name" value="${escapeHtml(u.full_name)}" />
-        <label>Badge Number</label><input class="pe-badge" value="${escapeHtml(u.badge_number)}" />
-        <label>Rank</label><input class="pe-rank" value="${escapeHtml(u.officer_rank || '')}" />
-        <label>Agency</label><input class="pe-agency" value="${escapeHtml(u.agency)}" />
-        <label>Primary Role</label>
-        <select class="pe-role">${optionsHtml(PERSONNEL_ROLE_VALUES)}</select>
-        <label>Additional Roles</label>
-        <div class="role-checkboxes pe-additional-roles">
-          ${PERSONNEL_ROLE_VALUES.map(
-            (r) =>
-              `<label class="checkbox-label"><input type="checkbox" value="${r}" ${
-                allRoles.includes(r) && r !== u.role ? 'checked' : ''
-              } /> ${humanize(r)}</label>`
-          ).join('')}
-        </div>
-        <label>Reset Password <span class="hint">(optional)</span></label>
-        <input class="pe-password" type="text" minlength="10" placeholder="Leave blank to keep current password" />
-        <button type="submit" class="btn btn-primary">Save Changes</button>
-        <p class="pe-error error-text" hidden></p>
-        <p class="pe-success success-text" hidden></p>`;
-      editForm.querySelector('.pe-role').value = u.role;
-
-      editBtn.addEventListener('click', () => {
-        editForm.hidden = !editForm.hidden;
-      });
-
-      editForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const errorEl = editForm.querySelector('.pe-error');
-        const successEl = editForm.querySelector('.pe-success');
-        errorEl.hidden = true;
-        successEl.hidden = true;
-
-        const body = {
-          full_name: editForm.querySelector('.pe-full-name').value.trim(),
-          badge_number: editForm.querySelector('.pe-badge').value.trim(),
-          officer_rank: editForm.querySelector('.pe-rank').value.trim() || undefined,
-          agency: editForm.querySelector('.pe-agency').value.trim(),
-          role: editForm.querySelector('.pe-role').value,
-          additional_roles: Array.from(editForm.querySelectorAll('.pe-additional-roles input:checked')).map(
-            (el) => el.value
-          ),
-        };
-        const newPassword = editForm.querySelector('.pe-password').value;
-        if (newPassword) body.new_password = newPassword;
-
-        try {
-          await apiFetch(`/api/users/${u.id}`, { method: 'PATCH', body: JSON.stringify(body) });
-          successEl.textContent = 'Account updated.';
-          successEl.hidden = false;
-          // Give the confirmation a moment on screen before the list
-          // reload replaces this form's DOM node entirely -- an immediate
-          // reload here would wipe the message before it ever paints.
-          setTimeout(() => loadPersonnelList(listEl, myProfile), 900);
-        } catch (err) {
-          errorEl.textContent = formErrorMessage(err);
-          errorEl.hidden = false;
-        }
-      });
-
-      li.appendChild(editForm);
       listEl.appendChild(li);
     });
   } catch (err) {
@@ -1179,49 +769,6 @@ function offenseOptionsHtml() {
     TIBRS_OFFENSE_CODES.map(([code, desc]) => `<option value="${code}">${code} - ${escapeHtml(desc)}</option>`).join('')
   );
 }
-
-// Mirrors src/validation/incidentSchema.js's LOCATION_TYPES exactly -- used
-// to build the Location Type <select> on the incident edit form (the
-// create form's copy is written out as static HTML options).
-const LOCATION_TYPES = [
-  'Air_Bus_Train_Terminal',
-  'Bank_Savings_Loan',
-  'Bar_Nightclub',
-  'Church_Synagogue_Temple_Mosque',
-  'Commercial_Office_Building',
-  'Construction_Site',
-  'Convenience_Store',
-  'Department_Discount_Store',
-  'Drug_Store_Doctors_Office_Hospital',
-  'Field_Woods',
-  'Government_Public_Building',
-  'Grocery_Supermarket',
-  'Highway_Road_Alley_Street_Sidewalk',
-  'Hotel_Motel',
-  'Jail_Prison',
-  'Lake_Waterway_Beach',
-  'Liquor_Store',
-  'Parking_Lot_Garage',
-  'Park_Playground',
-  'Rental_Storage_Facility',
-  'Residence_Home',
-  'Restaurant',
-  'School_College',
-  'Service_Gas_Station',
-  'Shopping_Mall',
-  'Specialty_Store',
-  'Other',
-  'Unknown',
-];
-const INCIDENT_STATUSES = ['Open', 'Under_Review', 'Closed'];
-const EXCEPTIONAL_CLEARANCE_VALUES = [
-  'Not_Applicable',
-  'Death_of_Offender',
-  'Prosecution_Declined',
-  'In_Custody_of_Other_Jurisdiction',
-  'Victim_Refused_to_Cooperate',
-  'Juvenile_No_Custody',
-];
 
 const INCIDENT_PERSON_ROLES = ['Victim', 'Offender', 'Witness', 'Reporting_Party'];
 const INJURY_TYPES = [
@@ -1666,7 +1213,6 @@ async function loadIncidentsList() {
 async function renderIncidentDetail(id) {
   mount('tpl-incident-detail');
   mainContent.querySelector('.back-btn').addEventListener('click', () => navigate('incidents'));
-  wirePrintButton(mainContent.querySelector('.print-btn'));
 
   try {
     const inc = await apiFetch(`/api/incidents/${id}`);
@@ -1731,81 +1277,6 @@ async function renderIncidentDetail(id) {
                 )} — ${humanize(p.property_loss_type)} — ${fmtMoney(p.value_amount)}</div></li>`
             )
             .join('');
-
-    wireApprovalSection({
-      record: inc,
-      id,
-      apiPath: 'incidents',
-      badgeEl: mainContent.querySelector('.i-approval-badge'),
-      detailEl: mainContent.querySelector('.i-approval-detail'),
-      formEl: document.getElementById('incident-approval-form'),
-      notesEl: document.getElementById('incident-approval-notes'),
-      errorEl: mainContent.querySelector('.i-approval-error'),
-      successEl: mainContent.querySelector('.i-approval-success'),
-      onSaved: () => renderIncidentDetail(id),
-    });
-
-    const editToggle = document.getElementById('incident-edit-toggle');
-    const editForm = document.getElementById('incident-edit-form');
-    if (hasAnyRole('Patrol_Officer', 'Supervisor', 'System_Admin')) {
-      editToggle.hidden = false;
-      wireEditToggle(editToggle, editForm);
-
-      const locSelect = document.getElementById('ie-location-type');
-      locSelect.innerHTML = optionsHtml(LOCATION_TYPES);
-      locSelect.value = inc.location_type || '';
-      const statusSelect = document.getElementById('ie-status');
-      statusSelect.innerHTML = optionsHtml(INCIDENT_STATUSES);
-      statusSelect.value = inc.status || '';
-      const clearanceSelect = document.getElementById('ie-clearance');
-      clearanceSelect.innerHTML = optionsHtml(EXCEPTIONAL_CLEARANCE_VALUES);
-      clearanceSelect.value = inc.exceptional_clearance || '';
-
-      if (inc.occurrence_date) {
-        const d = new Date(inc.occurrence_date);
-        if (!Number.isNaN(d.getTime())) document.getElementById('ie-occurrence-date').value = d.toISOString().slice(0, 10);
-      }
-      document.getElementById('ie-location-address').value = inc.location_address || '';
-      document.getElementById('ie-latitude').value = inc.latitude ?? '';
-      document.getElementById('ie-longitude').value = inc.longitude ?? '';
-      document.getElementById('ie-cleared-date').value = inc.cleared_date ? String(inc.cleared_date).slice(0, 10) : '';
-
-      editForm.onsubmit = async (e) => {
-        e.preventDefault();
-        const errorEl = mainContent.querySelector('.ie-error');
-        const successEl = mainContent.querySelector('.ie-success');
-        errorEl.hidden = true;
-        successEl.hidden = true;
-
-        const val = (elId) => document.getElementById(elId).value.trim();
-        const body = {};
-        if (val('ie-occurrence-date')) body.occurrence_date = val('ie-occurrence-date');
-        if (val('ie-location-address')) body.location_address = val('ie-location-address');
-        if (val('ie-location-type')) body.location_type = val('ie-location-type');
-        if (val('ie-latitude') !== '' && val('ie-longitude') !== '') {
-          body.latitude = Number(val('ie-latitude'));
-          body.longitude = Number(val('ie-longitude'));
-        }
-        if (val('ie-status')) body.status = val('ie-status');
-        if (val('ie-clearance')) body.exceptional_clearance = val('ie-clearance');
-        if (val('ie-cleared-date')) body.cleared_date = val('ie-cleared-date');
-
-        try {
-          await apiFetch(`/api/incidents/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-          successEl.textContent = 'Incident updated.';
-          successEl.hidden = false;
-          // See the identical note on the citation edit save handler --
-          // renderIncidentDetail() re-mounts the view.
-          setTimeout(() => renderIncidentDetail(id), 900);
-        } catch (err) {
-          errorEl.textContent = formErrorMessage(err);
-          errorEl.hidden = false;
-        }
-      };
-    } else {
-      editToggle.hidden = true;
-      editForm.hidden = true;
-    }
   } catch (err) {
     mainContent.querySelector('.i-case-number').textContent = err.message;
   }
@@ -2002,7 +1473,6 @@ async function loadCrashesList() {
 async function renderCrashDetail(id) {
   mount('tpl-crash-detail');
   mainContent.querySelector('.back-btn').addEventListener('click', () => navigate('crashes'));
-  wirePrintButton(mainContent.querySelector('.print-btn'));
 
   try {
     const c = await apiFetch(`/api/crashes/${id}`);
@@ -2043,81 +1513,6 @@ async function renderCrashDetail(id) {
                 )} (${humanize(p.role)})</div><div class="r-sub">${humanize(p.injury_severity)}</div></li>`
             )
             .join('');
-
-    wireApprovalSection({
-      record: c,
-      id,
-      apiPath: 'crashes',
-      badgeEl: mainContent.querySelector('.cr-approval-badge'),
-      detailEl: mainContent.querySelector('.cr-approval-detail'),
-      formEl: document.getElementById('crash-approval-form'),
-      notesEl: document.getElementById('crash-approval-notes'),
-      errorEl: mainContent.querySelector('.cr-approval-error'),
-      successEl: mainContent.querySelector('.cr-approval-success'),
-      onSaved: () => renderCrashDetail(id),
-    });
-
-    const editToggle = document.getElementById('crash-edit-toggle');
-    const editForm = document.getElementById('crash-edit-form');
-    if (hasAnyRole('Patrol_Officer', 'Supervisor', 'System_Admin')) {
-      editToggle.hidden = false;
-      wireEditToggle(editToggle, editForm);
-
-      document.getElementById('cre-weather').innerHTML = optionsHtml(WEATHER_CONDITIONS);
-      document.getElementById('cre-road-surface').innerHTML = optionsHtml(ROAD_SURFACE_CONDITIONS);
-      document.getElementById('cre-light').innerHTML = optionsHtml(LIGHT_CONDITIONS);
-      document.getElementById('cre-severity').innerHTML = optionsHtml(CRASH_SEVERITIES);
-      document.getElementById('cre-weather').value = c.weather_condition || '';
-      document.getElementById('cre-road-surface').value = c.road_surface_condition || '';
-      document.getElementById('cre-light').value = c.light_condition || '';
-      document.getElementById('cre-severity').value = c.crash_severity || '';
-
-      if (c.crash_date) {
-        const d = new Date(c.crash_date);
-        if (!Number.isNaN(d.getTime())) document.getElementById('cre-crash-date').value = d.toISOString().slice(0, 10);
-      }
-      document.getElementById('cre-location').value = c.location || '';
-      document.getElementById('cre-latitude').value = c.latitude ?? '';
-      document.getElementById('cre-longitude').value = c.longitude ?? '';
-      document.getElementById('cre-narrative').value = c.narrative || '';
-
-      editForm.onsubmit = async (e) => {
-        e.preventDefault();
-        const errorEl = mainContent.querySelector('.cre-error');
-        const successEl = mainContent.querySelector('.cre-success');
-        errorEl.hidden = true;
-        successEl.hidden = true;
-
-        const val = (elId) => document.getElementById(elId).value.trim();
-        const body = {};
-        if (val('cre-crash-date')) body.crash_date = val('cre-crash-date');
-        if (val('cre-location')) body.location = val('cre-location');
-        if (val('cre-latitude') !== '' && val('cre-longitude') !== '') {
-          body.latitude = Number(val('cre-latitude'));
-          body.longitude = Number(val('cre-longitude'));
-        }
-        if (val('cre-weather')) body.weather_condition = val('cre-weather');
-        if (val('cre-road-surface')) body.road_surface_condition = val('cre-road-surface');
-        if (val('cre-light')) body.light_condition = val('cre-light');
-        if (val('cre-severity')) body.crash_severity = val('cre-severity');
-        if (val('cre-narrative')) body.narrative = val('cre-narrative');
-
-        try {
-          await apiFetch(`/api/crashes/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-          successEl.textContent = 'Crash report updated.';
-          successEl.hidden = false;
-          // See the identical note on the citation edit save handler --
-          // renderCrashDetail() re-mounts the view.
-          setTimeout(() => renderCrashDetail(id), 900);
-        } catch (err) {
-          errorEl.textContent = formErrorMessage(err);
-          errorEl.hidden = false;
-        }
-      };
-    } else {
-      editToggle.hidden = true;
-      editForm.hidden = true;
-    }
   } catch (err) {
     mainContent.querySelector('.cr-report-number').textContent = err.message;
   }
@@ -2249,11 +1644,9 @@ async function loadEvidenceList() {
 async function renderEvidenceDetail(id) {
   mount('tpl-evidence-detail');
   mainContent.querySelector('.back-btn').addEventListener('click', () => navigate('evidence'));
-  wirePrintButton(mainContent.querySelector('.print-btn'));
 
   document.getElementById('ev-status-select').innerHTML = optionsHtml(EVIDENCE_STATUSES);
   document.getElementById('cu-action').innerHTML = optionsHtml(EVIDENCE_CUSTODY_ACTIONS);
-  document.getElementById('eve-category').innerHTML = optionsHtml(EVIDENCE_CATEGORIES);
 
   async function loadDetail() {
     const item = await apiFetch(`/api/evidence/${id}`);
@@ -2286,60 +1679,6 @@ async function renderEvidenceDetail(id) {
           )} by ${escapeHtml(c.performed_by_name)}${c.notes ? ' — ' + escapeHtml(c.notes) : ''}</div></li>`
       )
       .join('');
-
-    wireApprovalSection({
-      record: item,
-      id,
-      apiPath: 'evidence',
-      badgeEl: mainContent.querySelector('.ev-approval-badge'),
-      detailEl: mainContent.querySelector('.ev-approval-detail'),
-      formEl: document.getElementById('evidence-approval-form'),
-      notesEl: document.getElementById('evidence-approval-notes'),
-      errorEl: mainContent.querySelector('.ev-approval-error'),
-      successEl: mainContent.querySelector('.ev-approval-success'),
-      onSaved: loadDetail,
-    });
-
-    const editToggle = document.getElementById('evidence-edit-toggle');
-    const editForm = document.getElementById('evidence-edit-form');
-    if (hasAnyRole('Patrol_Officer', 'Supervisor', 'System_Admin')) {
-      editToggle.hidden = false;
-      wireEditToggle(editToggle, editForm);
-      document.getElementById('eve-category').value = item.category || '';
-      document.getElementById('eve-description').value = item.description || '';
-      document.getElementById('eve-quantity').value = item.quantity ?? '';
-      document.getElementById('eve-location-collected').value = item.location_collected || '';
-      document.getElementById('eve-date-collected').value = item.date_collected ? String(item.date_collected).slice(0, 10) : '';
-
-      editForm.onsubmit = async (e) => {
-        e.preventDefault();
-        const errorEl = mainContent.querySelector('.eve-error');
-        const successEl = mainContent.querySelector('.eve-success');
-        errorEl.hidden = true;
-        successEl.hidden = true;
-
-        const val = (elId) => document.getElementById(elId).value.trim();
-        const body = {};
-        if (val('eve-category')) body.category = val('eve-category');
-        if (val('eve-description')) body.description = val('eve-description');
-        if (val('eve-quantity') !== '') body.quantity = Number(val('eve-quantity'));
-        if (val('eve-location-collected')) body.location_collected = val('eve-location-collected');
-        if (val('eve-date-collected')) body.date_collected = val('eve-date-collected');
-
-        try {
-          await apiFetch(`/api/evidence/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-          successEl.textContent = 'Evidence item updated.';
-          successEl.hidden = false;
-          await loadDetail();
-        } catch (err) {
-          errorEl.textContent = formErrorMessage(err);
-          errorEl.hidden = false;
-        }
-      };
-    } else {
-      editToggle.hidden = true;
-      editForm.hidden = true;
-    }
 
     return item;
   }

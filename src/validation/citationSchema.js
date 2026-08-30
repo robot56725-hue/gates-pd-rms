@@ -104,28 +104,6 @@ const courtSchema = Joi.object({
   court_name: Joi.string().trim().min(1).max(120).required(),
 }).required();
 
-// A signature is a data: URL (image/png) captured from an on-screen
-// signature pad. TN practice for a citation is a signature block
-// acknowledging receipt/promise to appear -- a violator refusing to sign is
-// itself a legally meaningful, valid outcome (not an error), so exactly one
-// of violator_signature / violator_refused_to_sign is required, never both
-// and never neither -- see db/migrations/008_..._multirole_...sql.
-// No .default() on violator_refused_to_sign here, deliberately: .xor()
-// checks presence in the RESOLVED value, which includes defaults -- a
-// default of false would make the key "present" on every request (even one
-// that only sent violator_signature), so .xor() would always see both
-// peers and reject every legitimately-signed citation. The controller
-// coalesces the omitted case to false before it hits the NOT NULL column.
-const signatureSchema = Joi.object({
-  violator_signature: Joi.string().trim().max(200000).optional(),
-  violator_refused_to_sign: Joi.boolean().optional(),
-})
-  .xor('violator_signature', 'violator_refused_to_sign')
-  .messages({
-    'object.xor': 'Provide either a captured signature or mark that the violator refused to sign, not both.',
-    'object.missing': 'A signature or a recorded refusal to sign is required.',
-  });
-
 const citationRequestSchema = Joi.object({
   // Optional client-generated id: lets an offline mobile client pre-assign
   // the citation's UUID primary key so a retried sync is idempotent (see
@@ -147,33 +125,8 @@ const citationRequestSchema = Joi.object({
   offense: offenseSchema,
   court: courtSchema,
 })
-  .concat(signatureSchema)
   .required()
   .options({ abortEarly: false, stripUnknown: false, presence: 'required' });
-
-// PATCH /api/citations/:id -- correcting a mistake on an already-issued
-// citation (wrong TCA code, court date, description, etc). Deliberately
-// scoped to columns that live directly on e_citations: re-pointing a
-// citation at a different violator/vehicle person record is a rarer,
-// higher-stakes correction handled separately, not through this endpoint.
-const citationUpdateSchema = Joi.object({
-  location: Joi.string().trim().min(1).max(255).optional(),
-  latitude: Joi.number().min(-90).max(90).optional(),
-  longitude: Joi.number().min(-180).max(180).optional(),
-  offense_description: Joi.string().trim().min(1).max(1000).optional(),
-  tca_code: Joi.string().trim().min(1).max(30).optional(),
-  is_cmv: Joi.boolean().optional(),
-  is_hazmat: Joi.boolean().optional(),
-  passenger_capacity_16plus: Joi.boolean().optional(),
-  court_date: isoDate().optional(),
-  court_time: isoTime().optional(),
-  court_location: Joi.string().trim().min(1).max(255).optional(),
-  court_name: Joi.string().trim().min(1).max(120).optional(),
-})
-  .and('latitude', 'longitude')
-  .and('court_date', 'court_time')
-  .min(1)
-  .options({ abortEarly: false });
 
 // GET /api/citations query params. status re-uses the same
 // court_disposition_status values as courtLedgerSchema.js -- kept as a
@@ -197,7 +150,6 @@ const citationListQuerySchema = Joi.object({
 
 module.exports = {
   citationRequestSchema,
-  citationUpdateSchema,
   citationListQuerySchema,
   PERSON_SEX_VALUES,
   PERSON_RACE_VALUES,

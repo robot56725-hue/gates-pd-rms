@@ -7,13 +7,7 @@ const { createUserSchema, updateUserSchema } = require('../validation/userSchema
 
 const BCRYPT_ROUNDS = 12;
 
-// additional_roles is casted to text[] because it's a Postgres array of a
-// custom ENUM type (user_role[]) -- node-postgres only ships a built-in
-// array parser for well-known type OIDs (text[], int4[], etc), not for a
-// database-specific enum array, so left uncasted it comes back as the raw
-// wire-format string "{Supervisor}" instead of a JS array, breaking
-// anything downstream that calls .filter()/.map() on it (see updateUser).
-const USER_COLUMNS = `id, username, role, additional_roles::text[] AS additional_roles, badge_number, full_name, officer_rank, agency, is_active, created_at, updated_at`;
+const USER_COLUMNS = `id, username, role, badge_number, full_name, officer_rank, agency, is_active, created_at, updated_at`;
 
 /**
  * GET /api/users -- personnel roster. System_Admin only (see
@@ -43,21 +37,15 @@ const createUser = asyncHandler(async (req, res) => {
 
   const passwordHash = await bcrypt.hash(value.password, BCRYPT_ROUNDS);
 
-  // additional_roles is purely additive on top of the primary role -- strip
-  // out a redundant copy of the primary role itself so role/additional_roles
-  // never disagree about whether the account "has" its own primary role.
-  const additionalRoles = (value.additional_roles || []).filter((r) => r !== value.role);
-
   try {
     const { rows } = await req.db.query(
-      `INSERT INTO users (username, password_hash, role, additional_roles, badge_number, full_name, officer_rank, agency)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO users (username, password_hash, role, badge_number, full_name, officer_rank, agency)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING ${USER_COLUMNS}`,
       [
         value.username,
         passwordHash,
         value.role,
-        additionalRoles,
         value.badge_number,
         value.full_name,
         value.officer_rank || null,
@@ -77,9 +65,17 @@ const createUser = asyncHandler(async (req, res) => {
 });
 
 /**
- * PATCH /api/users/:id -- update role/additional_roles/badge/name/rank/
- * agency, activate or deactivate an account, or reset a password.
- * System_Admin only.
+ * PATCH /api/users/:id -- update role/badge/name/rank/agency, activate or
+ * deactivate an account, or reset a password. System_Admin only.
+ *
+ * There is deliberately no DELETE endpoint. db/migrations/001_init_schema.sql
+ * gives the `users` table a SELECT policy and admin-only INSERT/UPDATE
+ * policies, but no DELETE policy at all -- under FORCE ROW LEVEL SECURITY
+ * that means every role, including System_Admin, is unconditionally denied
+ * at the database layer. That's intentional: an account's history (who held
+ * a badge number, when) is itself a record worth keeping. Deactivating
+ * (is_active=false) achieves the practical goal -- the account can no longer
+ * log in (see controllers/auth.controller.js) -- without erasing that history.
  */
 const updateUser = asyncHandler(async (req, res) => {
   const { error, value } = updateUserSchema.validate(req.body);
@@ -94,29 +90,21 @@ const updateUser = asyncHandler(async (req, res) => {
 
   const passwordHash = value.new_password ? await bcrypt.hash(value.new_password, BCRYPT_ROUNDS) : null;
 
-  // additional_roles is only touched when the PATCH actually includes it --
-  // see the "no default()" note in userSchema.js. Any overlap with the
-  // primary role is tidied up after the UPDATE below (once we know the
-  // row's final `role`, whether or not this request changed it).
-  const additionalRoles = value.additional_roles !== undefined ? value.additional_roles : null;
-
   let rows;
   try {
     ({ rows } = await req.db.query(
       `UPDATE users SET
-          role             = COALESCE($1, role),
-          additional_roles = COALESCE($2, additional_roles),
-          badge_number     = COALESCE($3, badge_number),
-          full_name        = COALESCE($4, full_name),
-          officer_rank     = COALESCE($5, officer_rank),
-          agency           = COALESCE($6, agency),
-          is_active        = COALESCE($7, is_active),
-          password_hash    = COALESCE($8, password_hash)
-        WHERE id = $9
+          role          = COALESCE($1, role),
+          badge_number  = COALESCE($2, badge_number),
+          full_name     = COALESCE($3, full_name),
+          officer_rank  = COALESCE($4, officer_rank),
+          agency        = COALESCE($5, agency),
+          is_active     = COALESCE($6, is_active),
+          password_hash = COALESCE($7, password_hash)
+        WHERE id = $8
         RETURNING ${USER_COLUMNS}`,
       [
         value.role ?? null,
-        additionalRoles,
         value.badge_number ?? null,
         value.full_name ?? null,
         value.officer_rank ?? null,
@@ -137,56 +125,7 @@ const updateUser = asyncHandler(async (req, res) => {
     throw new AppError(404, 'No such user account.');
   }
 
-  // additional_roles may still contain the (now-current) primary role if
-  // only `role` changed this request without also resending
-  // additional_roles -- harmless for access checks (requireRoles just needs
-  // ANY match) but tidy it up for display.
-  rows[0].additional_roles = (rows[0].additional_roles || []).filter((r) => r !== rows[0].role);
-
   res.status(200).json(rows[0]);
 });
 
-/**
- * DELETE /api/users/:id -- permanently remove a personnel account.
- * System_Admin only (db/migrations/008_..._multirole_...sql added the RLS
- * policy that allows this; before that migration DELETE was unconditionally
- * denied at the database layer for every role).
- *
- * Deliberately NOT guarded against an account with history by application
- * code -- every table that references users.id (e_citations.officer_id,
- * incidents.reporting_officer_id, evidence_items.collected_by_id, etc.) does
- * so with the default ON DELETE RESTRICT/NO ACTION, so the database itself
- * refuses to delete an account with any real record attached to it (caught
- * below as a foreign_key_violation) and Postgres does the enforcing, not a
- * checklist of every table this code has to remember to check. Use
- * deactivation (PATCH is_active=false) for an account with a history;
- * DELETE is for a never-used or mistakenly-created account.
- */
-const deleteUser = asyncHandler(async (req, res) => {
-  if (req.params.id === req.user.id) {
-    throw new AppError(400, 'You cannot delete your own account.');
-  }
-
-  let rows;
-  try {
-    ({ rows } = await req.db.query(`DELETE FROM users WHERE id = $1 RETURNING id, username`, [
-      req.params.id,
-    ]));
-  } catch (err) {
-    if (err.code === '23503') {
-      throw new AppError(
-        409,
-        'This account has citations, incidents, crash reports, or evidence on file and cannot be deleted. Deactivate it instead.'
-      );
-    }
-    throw err;
-  }
-
-  if (!rows[0]) {
-    throw new AppError(404, 'No such user account.');
-  }
-
-  res.status(200).json({ id: rows[0].id, username: rows[0].username, outcome: 'deleted' });
-});
-
-module.exports = { listUsers, createUser, updateUser, deleteUser };
+module.exports = { listUsers, createUser, updateUser };
