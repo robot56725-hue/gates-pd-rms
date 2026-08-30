@@ -11,6 +11,7 @@ const {
   updateCharge,
   addNote,
   updateCaseStatus,
+  getFtaNotice,
 } = require('../controllers/cases.controller');
 
 const router = express.Router();
@@ -21,6 +22,10 @@ const router = express.Router();
 // Court_Clerk to work the docket. Only the write routes below are role-gated.
 router.get('/', authenticate, withDbAudit('court_cases'), listCases);
 router.get('/:id', authenticate, withDbAudit('court_cases'), getCaseById);
+
+// Document-automation data feed for an FTA notice -- read-only, same access
+// as every other GET on this router.
+router.get('/:id/fta-notice', authenticate, withDbAudit('court_cases'), getFtaNotice);
 
 // Write access -- Court_Clerk + Supervisor/System_Admin only. Patrol_Officer
 // issues citations and writes incident narratives, but opening/managing a

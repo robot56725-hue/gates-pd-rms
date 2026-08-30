@@ -25,6 +25,8 @@ const remindersRoutes = require('./routes/reminders.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 const paymentsRoutes = require('./routes/payments.routes');
 const fundCategoriesRoutes = require('./routes/fundCategories.routes');
+const warrantsRoutes = require('./routes/warrants.routes');
+const reportsRoutes = require('./routes/reports.routes');
 
 const app = express();
 
@@ -71,6 +73,8 @@ app.use('/api/reminders', remindersRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/fund-categories', fundCategoriesRoutes);
+app.use('/api/warrants', warrantsRoutes);
+app.use('/api/reports', reportsRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

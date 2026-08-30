@@ -367,6 +367,52 @@ const updateCaseStatus = asyncHandler(async (req, res) => {
   res.status(200).json(updated.rows[0]);
 });
 
+/**
+ * GET /api/cases/:id/fta-notice -- document-automation data feed (not the
+ * printed document itself -- rendering/print layout is a frontend concern,
+ * same split already used for citation printing). Returns everything a
+ * failure-to-appear notice needs to name: the case, its defendant, every
+ * charge, and every docket appearance actually marked FTA (appearance_status
+ * = 'FTA' on docket_entries), most recent first. 404s a case with no FTA
+ * appearance at all rather than returning an empty/misleading notice.
+ */
+const getFtaNotice = asyncHandler(async (req, res) => {
+  const { error: paramError, value: params } = idParamSchema.validate(req.params);
+  if (paramError) throw Object.assign(paramError, { isJoi: true });
+
+  const db = req.db;
+
+  const caseResult = await db.query(`SELECT ${CASE_JOIN_COLUMNS} ${CASE_JOIN_FROM} WHERE cc.id = $1`, [
+    params.id,
+  ]);
+  const courtCase = caseResult.rows[0];
+  if (!courtCase) {
+    throw new AppError(404, 'Case not found.');
+  }
+
+  const ftaEntries = await db.query(
+    `SELECT de.id AS docket_entry_id, de.appearance_status, de.notes AS entry_notes,
+            cd.id AS docket_id, cd.docket_date, cd.docket_time, cd.location,
+            cj.full_name AS judge_name
+       FROM docket_entries de
+       JOIN court_dockets cd ON cd.id = de.docket_id
+       LEFT JOIN court_judges cj ON cj.id = cd.judge_id
+      WHERE de.case_id = $1 AND de.appearance_status = 'FTA'
+      ORDER BY cd.docket_date DESC, cd.docket_time DESC NULLS LAST`,
+    [params.id]
+  );
+
+  if (ftaEntries.rows.length === 0) {
+    throw new AppError(404, 'This case has no recorded FTA (failure-to-appear) docket entries.');
+  }
+
+  const charges = await db.query(`SELECT * FROM case_charges WHERE case_id = $1 ORDER BY count_number`, [
+    params.id,
+  ]);
+
+  res.status(200).json({ ...courtCase, fta_appearances: ftaEntries.rows, charges: charges.rows });
+});
+
 module.exports = {
   createCase,
   listCases,
@@ -375,4 +421,5 @@ module.exports = {
   updateCharge,
   addNote,
   updateCaseStatus,
+  getFtaNotice,
 };
