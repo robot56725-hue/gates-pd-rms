@@ -9,6 +9,7 @@ const {
   evidenceListQuerySchema,
 } = require('../validation/evidenceSchema');
 const { idParamSchema } = require('../validation/common');
+const { makeApprovalHandler } = require('../utils/approval');
 
 /**
  * POST /api/evidence
@@ -82,6 +83,8 @@ const createEvidence = asyncHandler(async (req, res) => {
 const EVIDENCE_LIST_COLUMNS = `
   e.id, e.item_number, e.category, e.description, e.quantity, e.status,
   e.date_collected, e.storage_location, e.incident_id, e.crash_report_id,
+  e.approval_status, e.approved_by_id, e.approved_at, e.approval_notes,
+  approver.full_name AS approved_by_name,
   u.full_name AS collected_by_name, u.badge_number AS collected_by_badge
 `;
 
@@ -99,6 +102,7 @@ const listEvidence = asyncHandler(async (req, res) => {
     `SELECT ${EVIDENCE_LIST_COLUMNS}, count(*) OVER() AS total_count
        FROM evidence_items e
        JOIN users u ON u.id = e.collected_by_id
+       LEFT JOIN users approver ON approver.id = e.approved_by_id
       WHERE ($1::uuid IS NULL OR e.collected_by_id = $1)
         AND ($2::text IS NULL OR e.category::text = $2)
         AND ($3::text IS NULL OR e.status::text = $3)
@@ -142,10 +146,11 @@ const getEvidenceById = asyncHandler(async (req, res) => {
   const db = req.db;
 
   const itemResult = await db.query(
-    `SELECT ${EVIDENCE_LIST_COLUMNS}, e.disposition_notes, e.created_at, e.updated_at,
+    `SELECT ${EVIDENCE_LIST_COLUMNS}, e.disposition_notes, e.location_collected, e.created_at, e.updated_at,
             i.case_number AS incident_case_number, c.report_number AS crash_report_number
        FROM evidence_items e
        JOIN users u ON u.id = e.collected_by_id
+       LEFT JOIN users approver ON approver.id = e.approved_by_id
        LEFT JOIN incidents i ON i.id = e.incident_id
        LEFT JOIN crash_reports c ON c.id = e.crash_report_id
       WHERE e.id = $1`,
@@ -172,10 +177,13 @@ const getEvidenceById = asyncHandler(async (req, res) => {
 /**
  * PATCH /api/evidence/:id
  *
- * Updates status/storage/disposition notes only -- category, description,
- * and which case it belongs to are not editable after the fact (matches
- * the append-only spirit of incident narratives: fix a mistaken entry by
- * logging a correcting custody event, not by silently rewriting history).
+ * Updates status/storage/disposition notes plus the core intake fields
+ * (category, description, quantity, where/when collected) for correcting a
+ * mistake made at intake -- which case it belongs to is still not editable
+ * after the fact (re-linking evidence to a different incident/crash is a
+ * rarer, higher-stakes correction handled separately). A substantive
+ * custody-relevant change should still be logged as a custody event
+ * (POST /:id/custody), not silently rewritten here.
  */
 const updateEvidence = asyncHandler(async (req, res) => {
   const { error: paramsError, value: params } = idParamSchema.validate(req.params);
@@ -188,15 +196,27 @@ const updateEvidence = asyncHandler(async (req, res) => {
 
   const result = await db.query(
     `UPDATE evidence_items
-        SET status = COALESCE($1, status),
-            storage_location = COALESCE($2, storage_location),
-            disposition_notes = COALESCE($3, disposition_notes)
-      WHERE id = $4
-      RETURNING id, item_number, status, storage_location, disposition_notes`,
+        SET status              = COALESCE($1, status),
+            storage_location    = COALESCE($2, storage_location),
+            disposition_notes   = COALESCE($3, disposition_notes),
+            category            = COALESCE($4, category),
+            description         = COALESCE($5, description),
+            quantity            = COALESCE($6, quantity),
+            location_collected  = COALESCE($7, location_collected),
+            date_collected      = COALESCE($8, date_collected),
+            updated_at          = now()
+      WHERE id = $9
+      RETURNING id, item_number, status, storage_location, disposition_notes,
+                category, description, quantity, location_collected, date_collected`,
     [
       payload.status || null,
       payload.storage_location ?? null,
       payload.disposition_notes ?? null,
+      payload.category ?? null,
+      payload.description ? payload.description.trim() : null,
+      payload.quantity ?? null,
+      payload.location_collected ?? null,
+      payload.date_collected ?? null,
       params.id,
     ]
   );
@@ -205,8 +225,10 @@ const updateEvidence = asyncHandler(async (req, res) => {
     throw new AppError(404, 'Evidence item not found.');
   }
 
-  res.status(200).json(updated);
+  res.status(200).json({ ...updated, outcome: 'updated' });
 });
+
+const approveEvidence = makeApprovalHandler('evidence_items', 'Evidence item not found.');
 
 /**
  * POST /api/evidence/:id/custody
@@ -250,5 +272,6 @@ module.exports = {
   listEvidence,
   getEvidenceById,
   updateEvidence,
+  approveEvidence,
   addCustodyEntry,
 };

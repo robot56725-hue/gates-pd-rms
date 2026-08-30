@@ -45,10 +45,19 @@ function authenticate(req, res, next) {
     return next(new AppError(403, 'Token role is not recognized by this system.'));
   }
 
+  // roles (plural) is the account's primary role plus any additional_roles
+  // granted by a System_Admin (db/migrations/008_..._multirole_...sql) --
+  // an array so a Supervisor cross-trained to issue citations, say, can
+  // pass BOTH a Supervisor-only guard and a Patrol_Officer-only guard.
+  // Older tokens issued before this field existed won't carry it; fall back
+  // to the single primary role so they keep working.
+  const roles = Array.isArray(payload.roles) && payload.roles.length > 0 ? payload.roles : [payload.role];
+
   req.user = {
     id: payload.sub,
     badge: payload.badge,
     role: payload.role,
+    roles,
   };
 
   next();
@@ -56,7 +65,9 @@ function authenticate(req, res, next) {
 
 /**
  * Dependency-factory-style RBAC guard. Deny-by-default: a role not
- * explicitly listed is rejected.
+ * explicitly listed is rejected. Checks req.user.roles (primary role plus
+ * any additional_roles granted to the account), so a multi-role account
+ * passes if ANY of its roles is in allowedRoles.
  *
  *   router.patch('/court/citations/:id', authenticate, requireRoles('Court_Clerk'), handler);
  */
@@ -69,7 +80,8 @@ function requireRoles(...allowedRoles) {
     if (!req.user) {
       return next(new AppError(401, 'Not authenticated.'));
     }
-    if (!allowedRoles.includes(req.user.role)) {
+    const userRoles = req.user.roles || [req.user.role];
+    if (!userRoles.some((r) => allowedRoles.includes(r))) {
       return next(
         new AppError(403, `Role '${req.user.role}' is not permitted to perform this action.`)
       );

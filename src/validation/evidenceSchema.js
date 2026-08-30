@@ -72,6 +72,14 @@ const evidenceUpdateSchema = Joi.object({
     .optional(),
   storage_location: Joi.string().trim().max(120).allow('', null).optional(),
   disposition_notes: Joi.string().trim().max(2000).allow('', null).optional(),
+
+  category: Joi.string()
+    .valid(...EVIDENCE_CATEGORIES)
+    .optional(),
+  description: Joi.string().trim().min(1).max(500).optional(),
+  quantity: Joi.number().integer().min(1).max(100000).optional(),
+  location_collected: Joi.string().trim().max(255).allow('', null).optional(),
+  date_collected: Joi.date().iso().optional(),
 })
   .min(1)
   .message('At least one field must be provided to update the evidence item.')

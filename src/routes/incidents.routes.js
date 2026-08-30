@@ -8,6 +8,7 @@ const {
   listIncidents,
   getIncidentById,
   updateIncident,
+  approveIncident,
   addNarrative,
 } = require('../controllers/incidents.controller');
 
@@ -44,6 +45,16 @@ router.post(
   withDbAudit('incident_narratives'),
   requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
   addNarrative
+);
+
+// Approve/Reject -- Supervisor and System_Admin only. Deliberately excludes
+// Patrol_Officer: an officer should not be able to approve their own report.
+router.patch(
+  '/:id/approval',
+  authenticate,
+  withDbAudit('incidents'),
+  requireRoles('Supervisor', 'System_Admin'),
+  approveIncident
 );
 
 module.exports = router;

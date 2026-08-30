@@ -2,11 +2,16 @@
 
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
-const { citationRequestSchema, citationListQuerySchema } = require('../validation/citationSchema');
+const {
+  citationRequestSchema,
+  citationUpdateSchema,
+  citationListQuerySchema,
+} = require('../validation/citationSchema');
 const { idParamSchema } = require('../validation/common');
 const { validateMandatoryFields, COURT_FILING_DEADLINE_DAYS } = require('../utils/tcaFields');
 const { findOrCreatePerson } = require('../services/personService');
 const { findOrCreateVehicle } = require('../services/vehicleService');
+const { makeApprovalHandler } = require('../utils/approval');
 
 /**
  * Combines a YYYY-MM-DD date string and an HH:MM[:SS] time string into a
@@ -83,13 +88,15 @@ const createCitation = asyncHandler(async (req, res) => {
          offense_date, location, latitude, longitude, offense_description, tca_code,
          is_cmv, is_hazmat, passenger_capacity_16plus,
          court_date, court_location, court_name,
+         violator_signature, violator_refused_to_sign,
          device_created_at)
      VALUES
         (COALESCE($1, gen_random_uuid()), $2, $3, $4, $5,
          $6, $7, $8, $9, $10, $11,
          $12, $13, $14,
          $15, $16, $17,
-         $18)
+         $18, $19,
+         $20)
      RETURNING id, citation_number, court_filing_deadline, device_created_at`,
     [
       payload.id || null,
@@ -109,6 +116,8 @@ const createCitation = asyncHandler(async (req, res) => {
       courtTimestamp,
       payload.court.court_location.trim(),
       payload.court.court_name.trim(),
+      payload.violator_signature || null,
+      payload.violator_refused_to_sign ?? false,
       deviceCreatedAt,
     ]
   );
@@ -132,11 +141,18 @@ const CITATION_JOIN_COLUMNS = `
   c.offense_description, c.tca_code,
   c.is_cmv, c.is_hazmat, c.passenger_capacity_16plus,
   c.court_date, c.court_location, c.court_name, c.court_filing_deadline,
+  c.violator_signature, c.violator_refused_to_sign,
+  c.approval_status, c.approved_by_id, c.approved_at, c.approval_notes,
   c.device_created_at, c.created_at,
   p.id AS violator_id, p.first_name AS violator_first_name, p.last_name AS violator_last_name,
   p.sex AS violator_sex, p.race AS violator_race,
-  v.id AS vehicle_id, v.plate_number, v.plate_state, v.make, v.model,
+  p.height_inches AS violator_height_inches, p.weight_lbs AS violator_weight_lbs,
+  p.eye_color AS violator_eye_color, p.hair_color AS violator_hair_color,
+  p.drivers_license_num AS violator_dl_number, p.dl_state AS violator_dl_state,
+  p.address AS violator_address,
+  v.id AS vehicle_id, v.plate_number, v.plate_state, v.make, v.model, v.year AS vehicle_year, v.color AS vehicle_color,
   u.id AS officer_id, u.full_name AS officer_name, u.badge_number AS officer_badge,
+  approver.full_name AS approved_by_name,
   cl.court_status, cl.fine_amount_due, cl.amount_paid
 `;
 
@@ -145,6 +161,7 @@ const CITATION_JOIN_FROM = `
   JOIN master_persons p ON p.id = c.violator_id
   JOIN master_vehicles v ON v.id = c.vehicle_id
   JOIN users u ON u.id = c.officer_id
+  LEFT JOIN users approver ON approver.id = c.approved_by_id
   LEFT JOIN court_ledger cl ON cl.citation_id = c.id
 `;
 
@@ -225,4 +242,62 @@ const getCitationById = asyncHandler(async (req, res) => {
   res.status(200).json(citation);
 });
 
-module.exports = { createCitation, listCitations, getCitationById };
+/**
+ * PATCH /api/citations/:id -- correct a mistake on an already-issued
+ * citation. Same role set as createCitation (Patrol_Officer, Supervisor,
+ * System_Admin) -- see citations.routes.js.
+ */
+const updateCitation = asyncHandler(async (req, res) => {
+  const { error: paramsError, value: params } = idParamSchema.validate(req.params);
+  if (paramsError) throw Object.assign(paramsError, { isJoi: true });
+
+  const { error, value } = citationUpdateSchema.validate(req.body);
+  if (error) throw Object.assign(error, { isJoi: true });
+
+  const db = req.db;
+
+  // .and('court_date', 'court_time') in citationUpdateSchema guarantees
+  // these arrive together or not at all.
+  const courtTimestamp = value.court_date && value.court_time ? combineDateTime(value.court_date, value.court_time) : null;
+
+  const { rows } = await db.query(
+    `UPDATE e_citations SET
+        location                    = COALESCE($1, location),
+        latitude                    = COALESCE($2, latitude),
+        longitude                   = COALESCE($3, longitude),
+        offense_description         = COALESCE($4, offense_description),
+        tca_code                    = COALESCE($5, tca_code),
+        is_cmv                      = COALESCE($6, is_cmv),
+        is_hazmat                   = COALESCE($7, is_hazmat),
+        passenger_capacity_16plus   = COALESCE($8, passenger_capacity_16plus),
+        court_date                  = COALESCE($9, court_date),
+        court_location              = COALESCE($10, court_location),
+        court_name                  = COALESCE($11, court_name)
+      WHERE id = $12
+      RETURNING id, citation_number`,
+    [
+      value.location ? value.location.trim() : null,
+      value.latitude ?? null,
+      value.longitude ?? null,
+      value.offense_description ? value.offense_description.trim() : null,
+      value.tca_code ? value.tca_code.trim() : null,
+      value.is_cmv ?? null,
+      value.is_hazmat ?? null,
+      value.passenger_capacity_16plus ?? null,
+      courtTimestamp,
+      value.court_location ? value.court_location.trim() : null,
+      value.court_name ? value.court_name.trim() : null,
+      params.id,
+    ]
+  );
+
+  if (!rows[0]) {
+    throw new AppError(404, 'Citation not found.');
+  }
+
+  res.status(200).json({ ...rows[0], outcome: 'updated' });
+});
+
+const approveCitation = makeApprovalHandler('e_citations', 'Citation not found.');
+
+module.exports = { createCitation, listCitations, getCitationById, updateCitation, approveCitation };
