@@ -19,6 +19,8 @@ const tibrsRoutes = require('./routes/tibrs.routes');
 const usersRoutes = require('./routes/users.routes');
 const evidenceRoutes = require('./routes/evidence.routes');
 const casesRoutes = require('./routes/cases.routes');
+const judgesRoutes = require('./routes/judges.routes');
+const docketsRoutes = require('./routes/dockets.routes');
 
 const app = express();
 
@@ -31,7 +33,7 @@ app.use(
   cors({
     origin: env.corsAllowedOrigins.length > 0 ? env.corsAllowedOrigins : false,
     credentials: false,
-    methods: ['GET', 'POST', 'PATCH'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     allowedHeaders: ['Authorization', 'Content-Type'],
   })
 );
@@ -59,6 +61,8 @@ app.use('/api/tibrs', tibrsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/evidence', evidenceRoutes);
 app.use('/api/cases', casesRoutes);
+app.use('/api/judges', judgesRoutes);
+app.use('/api/dockets', docketsRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
