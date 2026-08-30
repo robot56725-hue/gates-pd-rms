@@ -65,6 +65,9 @@
         <button class="scope-btn active" data-scope="persons">People</button>
         <button class="scope-btn" data-scope="vehicles">Vehicles</button>
         <button class="scope-btn" data-scope="citations">Citations</button>
+        <button class="scope-btn" data-scope="incidents">Incidents</button>
+        <button class="scope-btn" data-scope="crashes">Crashes</button>
+        <button class="scope-btn" data-scope="evidence">Evidence</button>
       </div>
       <form id="search-form" class="search-form">
         <input id="search-input" type="text" placeholder="Name, license plate, VIN, citation #..." />
@@ -133,7 +136,10 @@
 
   <template id="tpl-citation-detail">
     <section class="panel">
-      <button class="btn btn-link back-btn">&larr; Back to citations</button>
+      <div class="detail-toolbar no-print">
+        <button class="btn btn-link back-btn">&larr; Back to citations</button>
+        <button class="btn btn-secondary print-btn">Print</button>
+      </div>
       <div class="report-letterhead">
         <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
         <div>
@@ -142,6 +148,7 @@
         </div>
       </div>
       <h2 class="c-number"></h2>
+      <p class="c-approval-badge approval-badge"></p>
       <dl class="detail-grid">
         <dt>Violator</dt><dd class="c-violator"></dd>
         <dt>Vehicle</dt><dd class="c-vehicle"></dd>
@@ -158,7 +165,63 @@
         <dt>Paid</dt><dd class="c-paid"></dd>
       </dl>
 
-      <form id="ledger-form" class="ledger-form" hidden>
+      <div class="court-notice">
+        <h3>Notice to Appear</h3>
+        <p>You are required to appear on the court date and time shown above. <strong>Failure to appear as required is punishable as contempt of court.</strong> To handle this citation before your court date, pay online or contact the Gates Municipal Court Clerk at 10085 2nd Street, Gates, TN 38037, (731) 836-7501.</p>
+      </div>
+
+      <div class="signature-block">
+        <h3>Violator Signature</h3>
+        <p class="hint">Signature acknowledges receipt of this citation and a promise to appear; it is not an admission of guilt.</p>
+        <img class="c-signature-img" alt="Violator signature" hidden />
+        <p class="c-signature-refused hint" hidden>Violator refused to sign.</p>
+      </div>
+
+      <div class="approval-section no-print">
+        <h3>Approval</h3>
+        <p class="c-approval-detail hint"></p>
+        <form id="citation-approval-form" hidden>
+          <label for="citation-approval-notes">Notes (optional)</label>
+          <textarea id="citation-approval-notes" rows="2"></textarea>
+          <div class="approval-actions">
+            <button type="button" class="btn btn-primary" data-decision="Approved">Approve</button>
+            <button type="button" class="btn btn-secondary btn-danger" data-decision="Rejected">Reject</button>
+          </div>
+          <p class="c-approval-error error-text" hidden></p>
+          <p class="c-approval-success success-text" hidden></p>
+        </form>
+      </div>
+
+      <div class="edit-section no-print">
+        <button class="btn btn-secondary edit-toggle-btn" id="citation-edit-toggle">Edit Citation</button>
+        <form id="citation-edit-form" hidden>
+          <label for="ce-description">Offense Description</label>
+          <textarea id="ce-description" rows="2"></textarea>
+          <label for="ce-tca">T.C.A. Code</label>
+          <input id="ce-tca" />
+          <label for="ce-location">Location</label>
+          <input id="ce-location" />
+          <div class="gps-row">
+            <label for="ce-latitude">Latitude</label>
+            <input id="ce-latitude" type="number" step="any" min="-90" max="90" />
+            <label for="ce-longitude">Longitude</label>
+            <input id="ce-longitude" type="number" step="any" min="-180" max="180" />
+          </div>
+          <label for="ce-court-date">Court Date</label>
+          <input id="ce-court-date" type="date" />
+          <label for="ce-court-time">Court Time</label>
+          <input id="ce-court-time" type="time" />
+          <label for="ce-court-location">Court Location</label>
+          <input id="ce-court-location" />
+          <label for="ce-court-name">Court Name</label>
+          <input id="ce-court-name" />
+          <button type="submit" class="btn btn-primary btn-block">Save Changes</button>
+          <p class="ce-error error-text" hidden></p>
+          <p class="ce-success success-text" hidden></p>
+        </form>
+      </div>
+
+      <form id="ledger-form" class="ledger-form no-print" hidden>
         <h3>Update Court Disposition</h3>
         <label for="ledger-status">Status</label>
         <select id="ledger-status">
@@ -301,6 +364,14 @@
           <input id="i-court-name" required />
         </fieldset>
 
+        <fieldset>
+          <legend>Violator Signature <span class="hint">(per T.C.A. 55-10-207)</span></legend>
+          <p class="hint">Have the violator sign below to acknowledge receipt of this citation and a promise to appear, or check "Refused to Sign" if they will not.</p>
+          <canvas id="i-signature-pad" class="signature-pad" width="600" height="180"></canvas>
+          <button type="button" id="i-signature-clear" class="btn btn-secondary">Clear Signature</button>
+          <label class="checkbox-label"><input type="checkbox" id="i-signature-refused" /> Violator Refused to Sign</label>
+        </fieldset>
+
         <button type="submit" class="btn btn-primary btn-block">Submit Citation</button>
         <p id="issue-error" class="error-text" hidden></p>
         <p id="issue-success" class="success-text" hidden></p>
@@ -311,7 +382,7 @@
   <template id="tpl-personnel">
     <section class="panel">
       <h2>Personnel</h2>
-      <p class="hint">Add, deactivate, or reactivate accounts for this department. Accounts are never deleted outright -- deactivating blocks login while keeping the account on record.</p>
+      <p class="hint">Add, edit, deactivate/reactivate, or delete accounts for this department. An account with citations, incidents, crash reports, or evidence on file cannot be deleted -- deactivate it instead to preserve that history.</p>
       <button id="personnel-add-btn" class="btn btn-primary">+ Add Personnel</button>
 
       <form id="personnel-add-form" class="issue-form" hidden novalidate>
@@ -329,13 +400,20 @@
           <input id="pn-rank" />
           <label for="pn-agency">Agency</label>
           <input id="pn-agency" value="Gates Police Department" required />
-          <label for="pn-role">Role</label>
+          <label for="pn-role">Primary Role</label>
           <select id="pn-role" required>
             <option value="Patrol_Officer">Patrol Officer</option>
             <option value="Supervisor">Supervisor</option>
             <option value="Court_Clerk">Court Clerk</option>
             <option value="System_Admin">System Admin</option>
           </select>
+          <label>Additional Roles <span class="hint">(optional -- grants extra access on top of the primary role)</span></label>
+          <div class="role-checkboxes" id="pn-additional-roles">
+            <label class="checkbox-label"><input type="checkbox" value="Patrol_Officer" /> Patrol Officer</label>
+            <label class="checkbox-label"><input type="checkbox" value="Supervisor" /> Supervisor</label>
+            <label class="checkbox-label"><input type="checkbox" value="Court_Clerk" /> Court Clerk</label>
+            <label class="checkbox-label"><input type="checkbox" value="System_Admin" /> System Admin</label>
+          </div>
         </fieldset>
         <button type="submit" class="btn btn-primary btn-block">Create Account</button>
         <p id="personnel-add-error" class="error-text" hidden></p>
@@ -441,7 +519,10 @@
 
   <template id="tpl-incident-detail">
     <section class="panel">
-      <button class="btn btn-link back-btn">&larr; Back to incidents</button>
+      <div class="detail-toolbar no-print">
+        <button class="btn btn-link back-btn">&larr; Back to incidents</button>
+        <button class="btn btn-secondary print-btn">Print</button>
+      </div>
       <div class="report-letterhead">
         <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
         <div>
@@ -450,6 +531,7 @@
         </div>
       </div>
       <h2 class="i-case-number"></h2>
+      <p class="i-approval-badge approval-badge"></p>
       <dl class="detail-grid">
         <dt>Occurrence Date</dt><dd class="i-occurrence-date"></dd>
         <dt>Location</dt><dd class="i-location"></dd>
@@ -467,6 +549,48 @@
       <ul class="result-list i-property"></ul>
       <h3>Narrative</h3>
       <p class="i-narrative"></p>
+
+      <div class="approval-section no-print">
+        <h3>Approval</h3>
+        <p class="i-approval-detail hint"></p>
+        <form id="incident-approval-form" hidden>
+          <label for="incident-approval-notes">Notes (optional)</label>
+          <textarea id="incident-approval-notes" rows="2"></textarea>
+          <div class="approval-actions">
+            <button type="button" class="btn btn-primary" data-decision="Approved">Approve</button>
+            <button type="button" class="btn btn-secondary btn-danger" data-decision="Rejected">Reject</button>
+          </div>
+          <p class="i-approval-error error-text" hidden></p>
+          <p class="i-approval-success success-text" hidden></p>
+        </form>
+      </div>
+
+      <div class="edit-section no-print">
+        <button class="btn btn-secondary edit-toggle-btn" id="incident-edit-toggle">Edit Incident</button>
+        <form id="incident-edit-form" hidden>
+          <label for="ie-occurrence-date">Occurrence Date</label>
+          <input id="ie-occurrence-date" type="date" />
+          <label for="ie-location-address">Location Address</label>
+          <input id="ie-location-address" />
+          <label for="ie-location-type">Location Type</label>
+          <select id="ie-location-type"></select>
+          <div class="gps-row">
+            <label for="ie-latitude">Latitude</label>
+            <input id="ie-latitude" type="number" step="any" min="-90" max="90" />
+            <label for="ie-longitude">Longitude</label>
+            <input id="ie-longitude" type="number" step="any" min="-180" max="180" />
+          </div>
+          <label for="ie-status">Status</label>
+          <select id="ie-status"></select>
+          <label for="ie-clearance">Exceptional Clearance</label>
+          <select id="ie-clearance"></select>
+          <label for="ie-cleared-date">Cleared Date</label>
+          <input id="ie-cleared-date" type="date" />
+          <button type="submit" class="btn btn-primary btn-block">Save Changes</button>
+          <p class="ie-error error-text" hidden></p>
+          <p class="ie-success success-text" hidden></p>
+        </form>
+      </div>
     </section>
   </template>
 
@@ -529,7 +653,10 @@
 
   <template id="tpl-crash-detail">
     <section class="panel">
-      <button class="btn btn-link back-btn">&larr; Back to crashes</button>
+      <div class="detail-toolbar no-print">
+        <button class="btn btn-link back-btn">&larr; Back to crashes</button>
+        <button class="btn btn-secondary print-btn">Print</button>
+      </div>
       <div class="report-letterhead">
         <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
         <div>
@@ -538,6 +665,7 @@
         </div>
       </div>
       <h2 class="cr-report-number"></h2>
+      <p class="cr-approval-badge approval-badge"></p>
       <dl class="detail-grid">
         <dt>Crash Date</dt><dd class="cr-crash-date"></dd>
         <dt>Location</dt><dd class="cr-location"></dd>
@@ -553,6 +681,50 @@
       <ul class="result-list cr-persons"></ul>
       <h3>Narrative</h3>
       <p class="cr-narrative"></p>
+
+      <div class="approval-section no-print">
+        <h3>Approval</h3>
+        <p class="cr-approval-detail hint"></p>
+        <form id="crash-approval-form" hidden>
+          <label for="crash-approval-notes">Notes (optional)</label>
+          <textarea id="crash-approval-notes" rows="2"></textarea>
+          <div class="approval-actions">
+            <button type="button" class="btn btn-primary" data-decision="Approved">Approve</button>
+            <button type="button" class="btn btn-secondary btn-danger" data-decision="Rejected">Reject</button>
+          </div>
+          <p class="cr-approval-error error-text" hidden></p>
+          <p class="cr-approval-success success-text" hidden></p>
+        </form>
+      </div>
+
+      <div class="edit-section no-print">
+        <button class="btn btn-secondary edit-toggle-btn" id="crash-edit-toggle">Edit Crash Report</button>
+        <form id="crash-edit-form" hidden>
+          <label for="cre-crash-date">Crash Date</label>
+          <input id="cre-crash-date" type="date" />
+          <label for="cre-location">Location</label>
+          <input id="cre-location" />
+          <div class="gps-row">
+            <label for="cre-latitude">Latitude</label>
+            <input id="cre-latitude" type="number" step="any" min="-90" max="90" />
+            <label for="cre-longitude">Longitude</label>
+            <input id="cre-longitude" type="number" step="any" min="-180" max="180" />
+          </div>
+          <label for="cre-weather">Weather Condition</label>
+          <select id="cre-weather"></select>
+          <label for="cre-road-surface">Road Surface Condition</label>
+          <select id="cre-road-surface"></select>
+          <label for="cre-light">Light Condition</label>
+          <select id="cre-light"></select>
+          <label for="cre-severity">Crash Severity</label>
+          <select id="cre-severity"></select>
+          <label for="cre-narrative">Narrative</label>
+          <textarea id="cre-narrative" rows="3"></textarea>
+          <button type="submit" class="btn btn-primary btn-block">Save Changes</button>
+          <p class="cre-error error-text" hidden></p>
+          <p class="cre-success success-text" hidden></p>
+        </form>
+      </div>
     </section>
   </template>
 
@@ -605,7 +777,10 @@
 
   <template id="tpl-evidence-detail">
     <section class="panel">
-      <button class="btn btn-link back-btn">&larr; Back to evidence</button>
+      <div class="detail-toolbar no-print">
+        <button class="btn btn-link back-btn">&larr; Back to evidence</button>
+        <button class="btn btn-secondary print-btn">Print</button>
+      </div>
       <div class="report-letterhead">
         <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
         <div>
@@ -614,6 +789,7 @@
         </div>
       </div>
       <h2 class="ev-item-number"></h2>
+      <p class="ev-approval-badge approval-badge"></p>
       <dl class="detail-grid">
         <dt>Category</dt><dd class="ev-category"></dd>
         <dt>Description</dt><dd class="ev-description"></dd>
@@ -626,7 +802,7 @@
         <dt>Collected By</dt><dd class="ev-collected-by"></dd>
       </dl>
 
-      <form id="evidence-status-form">
+      <form id="evidence-status-form" class="no-print">
         <label for="ev-status-select">Update Status</label>
         <select id="ev-status-select"></select>
         <label for="ev-disposition-notes">Disposition Notes</label>
@@ -639,7 +815,7 @@
       <h3>Chain of Custody</h3>
       <ul class="result-list ev-custody-log"></ul>
 
-      <form id="custody-form">
+      <form id="custody-form" class="no-print">
         <label for="cu-action">Action</label>
         <select id="cu-action" required></select>
         <label for="cu-from">From Custodian</label>
@@ -652,6 +828,40 @@
         <p class="cu-error error-text" hidden></p>
         <p class="cu-success success-text" hidden></p>
       </form>
+
+      <div class="approval-section no-print">
+        <h3>Approval</h3>
+        <p class="ev-approval-detail hint"></p>
+        <form id="evidence-approval-form" hidden>
+          <label for="evidence-approval-notes">Notes (optional)</label>
+          <textarea id="evidence-approval-notes" rows="2"></textarea>
+          <div class="approval-actions">
+            <button type="button" class="btn btn-primary" data-decision="Approved">Approve</button>
+            <button type="button" class="btn btn-secondary btn-danger" data-decision="Rejected">Reject</button>
+          </div>
+          <p class="ev-approval-error error-text" hidden></p>
+          <p class="ev-approval-success success-text" hidden></p>
+        </form>
+      </div>
+
+      <div class="edit-section no-print">
+        <button class="btn btn-secondary edit-toggle-btn" id="evidence-edit-toggle">Edit Item Details</button>
+        <form id="evidence-edit-form" hidden>
+          <label for="eve-category">Category</label>
+          <select id="eve-category"></select>
+          <label for="eve-description">Description</label>
+          <textarea id="eve-description" rows="2"></textarea>
+          <label for="eve-quantity">Quantity</label>
+          <input id="eve-quantity" type="number" min="1" />
+          <label for="eve-location-collected">Location Collected</label>
+          <input id="eve-location-collected" />
+          <label for="eve-date-collected">Date Collected</label>
+          <input id="eve-date-collected" type="date" />
+          <button type="submit" class="btn btn-primary btn-block">Save Changes</button>
+          <p class="eve-error error-text" hidden></p>
+          <p class="eve-success success-text" hidden></p>
+        </form>
+      </div>
     </section>
   </template>
 

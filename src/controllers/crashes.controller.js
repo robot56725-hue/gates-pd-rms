@@ -2,10 +2,11 @@
 
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
-const { crashCreateSchema, crashListQuerySchema } = require('../validation/crashSchema');
+const { crashCreateSchema, crashUpdateSchema, crashListQuerySchema } = require('../validation/crashSchema');
 const { idParamSchema } = require('../validation/common');
 const { findOrCreatePerson } = require('../services/personService');
 const { findOrCreateVehicle } = require('../services/vehicleService');
+const { makeApprovalHandler } = require('../utils/approval');
 
 /**
  * POST /api/crashes
@@ -135,6 +136,8 @@ const createCrash = asyncHandler(async (req, res) => {
 
 const CRASH_LIST_COLUMNS = `
   c.id, c.report_number, c.crash_date, c.location, c.crash_severity,
+  c.approval_status, c.approved_by_id, c.approved_at, c.approval_notes,
+  approver.full_name AS approved_by_name,
   u.full_name AS officer_name, u.badge_number AS officer_badge
 `;
 
@@ -154,6 +157,7 @@ const listCrashes = asyncHandler(async (req, res) => {
     `SELECT ${CRASH_LIST_COLUMNS}, count(*) OVER() AS total_count
        FROM crash_reports c
        JOIN users u ON u.id = c.reporting_officer_id
+       LEFT JOIN users approver ON approver.id = c.approved_by_id
       WHERE ($1::uuid IS NULL OR c.reporting_officer_id = $1)
         AND ($2::text IS NULL OR c.crash_severity::text = $2)
         AND (
@@ -189,6 +193,7 @@ const getCrashById = asyncHandler(async (req, res) => {
             c.road_surface_condition, c.light_condition, c.narrative, c.created_at
        FROM crash_reports c
        JOIN users u ON u.id = c.reporting_officer_id
+       LEFT JOIN users approver ON approver.id = c.approved_by_id
       WHERE c.id = $1`,
     [params.id]
   );
@@ -225,4 +230,56 @@ const getCrashById = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { createCrash, listCrashes, getCrashById };
+/**
+ * PATCH /api/crashes/:id -- correct a mistake on an already-filed crash
+ * report. Same role set as createCrash (Patrol_Officer, Supervisor,
+ * System_Admin) -- see crashes.routes.js. Deliberately scoped to columns
+ * that live directly on crash_reports; re-working the involved vehicles or
+ * persons is a rarer, higher-stakes correction handled separately.
+ */
+const updateCrash = asyncHandler(async (req, res) => {
+  const { error: paramsError, value: params } = idParamSchema.validate(req.params);
+  if (paramsError) throw Object.assign(paramsError, { isJoi: true });
+
+  const { error, value } = crashUpdateSchema.validate(req.body);
+  if (error) throw Object.assign(error, { isJoi: true });
+
+  const db = req.db;
+
+  const { rows } = await db.query(
+    `UPDATE crash_reports SET
+        crash_date              = COALESCE($1, crash_date),
+        location                = COALESCE($2, location),
+        latitude                = COALESCE($3, latitude),
+        longitude               = COALESCE($4, longitude),
+        weather_condition       = COALESCE($5, weather_condition),
+        road_surface_condition  = COALESCE($6, road_surface_condition),
+        light_condition         = COALESCE($7, light_condition),
+        crash_severity          = COALESCE($8, crash_severity),
+        narrative               = COALESCE($9, narrative)
+      WHERE id = $10
+      RETURNING id, report_number, crash_date, location, crash_severity`,
+    [
+      value.crash_date ?? null,
+      value.location ? value.location.trim() : null,
+      value.latitude ?? null,
+      value.longitude ?? null,
+      value.weather_condition ?? null,
+      value.road_surface_condition ?? null,
+      value.light_condition ?? null,
+      value.crash_severity ?? null,
+      value.narrative !== undefined ? (value.narrative ? value.narrative.trim() : null) : null,
+      params.id,
+    ]
+  );
+
+  if (!rows[0]) {
+    throw new AppError(404, 'Crash report not found.');
+  }
+
+  res.status(200).json({ ...rows[0], outcome: 'updated' });
+});
+
+const approveCrash = makeApprovalHandler('crash_reports', 'Crash report not found.');
+
+module.exports = { createCrash, listCrashes, getCrashById, updateCrash, approveCrash };

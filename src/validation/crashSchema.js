@@ -143,6 +143,35 @@ const crashCreateSchema = Joi.object({
   .and('latitude', 'longitude')
   .options({ abortEarly: false, presence: 'optional' });
 
+// PATCH /api/crashes/:id -- correcting a mistake on an already-filed crash
+// report. Deliberately scoped to fields that live directly on
+// crash_reports; re-working the involved vehicles/persons collections is a
+// rarer, higher-stakes correction handled separately, not through this
+// endpoint (mirrors citationUpdateSchema / incidentUpdateSchema).
+const crashUpdateSchema = Joi.object({
+  crash_date: Joi.date().iso().optional(),
+  location: Joi.string().trim().min(1).max(255).optional(),
+  latitude: Joi.number().min(-90).max(90).optional(),
+  longitude: Joi.number().min(-180).max(180).optional(),
+  weather_condition: Joi.string()
+    .valid(...WEATHER_CONDITIONS)
+    .optional(),
+  road_surface_condition: Joi.string()
+    .valid(...ROAD_SURFACE_CONDITIONS)
+    .optional(),
+  light_condition: Joi.string()
+    .valid(...LIGHT_CONDITIONS)
+    .optional(),
+  crash_severity: Joi.string()
+    .valid(...CRASH_SEVERITIES)
+    .optional(),
+  narrative: Joi.string().trim().max(10000).allow('', null).optional(),
+})
+  .and('latitude', 'longitude')
+  .min(1)
+  .message('At least one field must be provided to update the crash report.')
+  .options({ abortEarly: false, presence: 'optional' });
+
 const crashListQuerySchema = Joi.object({
   q: Joi.string().trim().max(120).allow('', null).optional(),
   severity: Joi.string()
@@ -155,6 +184,7 @@ const crashListQuerySchema = Joi.object({
 
 module.exports = {
   crashCreateSchema,
+  crashUpdateSchema,
   crashListQuerySchema,
   WEATHER_CONDITIONS,
   ROAD_SURFACE_CONDITIONS,

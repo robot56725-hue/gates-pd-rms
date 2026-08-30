@@ -3,7 +3,13 @@
 const express = require('express');
 const { authenticate, requireRoles } = require('../middleware/auth');
 const { withDbAudit } = require('../middleware/dbAudit');
-const { createCrash, listCrashes, getCrashById } = require('../controllers/crashes.controller');
+const {
+  createCrash,
+  listCrashes,
+  getCrashById,
+  updateCrash,
+  approveCrash,
+} = require('../controllers/crashes.controller');
 
 const router = express.Router();
 
@@ -20,6 +26,26 @@ router.post(
   withDbAudit('crash_reports'),
   requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
   createCrash
+);
+
+// Correcting a mistake on an already-filed crash report -- same role set as
+// creation.
+router.patch(
+  '/:id',
+  authenticate,
+  withDbAudit('crash_reports'),
+  requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
+  updateCrash
+);
+
+// Approve/Reject -- Supervisor and System_Admin only. Deliberately excludes
+// Patrol_Officer: an officer should not be able to approve their own report.
+router.patch(
+  '/:id/approval',
+  authenticate,
+  withDbAudit('crash_reports'),
+  requireRoles('Supervisor', 'System_Admin'),
+  approveCrash
 );
 
 module.exports = router;

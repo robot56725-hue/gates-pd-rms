@@ -60,8 +60,16 @@ const login = asyncHandler(async (req, res) => {
 
   const { username, password } = value;
 
+  // additional_roles is cast to text[] -- it's a Postgres array of a custom
+  // ENUM type (user_role[]), and node-postgres has no built-in parser for a
+  // database-specific array OID, so left uncasted it comes back as the raw
+  // wire string "{Supervisor}" rather than a JS array. Spreading a STRING
+  // into the roles array below would silently fan it out character by
+  // character instead of throwing, so this one is easy to miss without a
+  // cast -- see the identical note on USER_COLUMNS in users.controller.js.
   const { rows } = await pool.query(
-    `SELECT id, username, password_hash, role, badge_number, is_active
+    `SELECT id, username, password_hash, role, additional_roles::text[] AS additional_roles,
+            badge_number, full_name, is_active
        FROM users
       WHERE username = $1`,
     [username]
@@ -86,8 +94,15 @@ const login = asyncHandler(async (req, res) => {
     throw new AppError(401, 'Invalid username or password.');
   }
 
+  // roles = primary role + any additional_roles granted by a System_Admin
+  // (db/migrations/008_..._multirole_...sql), deduplicated. requireRoles()
+  // grants access if ANY of these matches; RLS (users/court_ledger writes)
+  // still keys off the single primary `role` only -- see that migration's
+  // header note for why.
+  const roles = Array.from(new Set([user.role, ...(user.additional_roles || [])]));
+
   const token = jwt.sign(
-    { sub: user.id, badge: user.badge_number, role: user.role },
+    { sub: user.id, badge: user.badge_number, role: user.role, roles },
     env.jwtSecret,
     {
       algorithm: 'HS256',
@@ -104,7 +119,9 @@ const login = asyncHandler(async (req, res) => {
     token_type: 'Bearer',
     expires_in_seconds: 30 * 60,
     role: user.role,
+    roles,
     badge_number: user.badge_number,
+    full_name: user.full_name,
   });
 });
 

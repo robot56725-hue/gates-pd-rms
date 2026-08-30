@@ -294,3 +294,86 @@ legend {
 @media (max-width: 420px) {
   .detail-grid { grid-template-columns: 110px 1fr; font-size: 0.9rem; }
 }
+
+/* ---------------- Search: wrap scope buttons on narrow screens ---------------- */
+.scope-toggle { flex-wrap: wrap; }
+.scope-toggle .scope-btn { flex: 1 1 30%; min-width: 88px; }
+
+/* ---------------- Detail toolbar (back + print) ---------------- */
+.detail-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.detail-toolbar .back-btn { padding-left: 0; }
+
+/* ---------------- Court notice block (citation detail) ---------------- */
+.court-notice {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 16px 0;
+  font-size: 0.9rem;
+}
+.court-notice h3 { margin: 0 0 6px; color: var(--navy); font-size: 1rem; }
+
+/* ---------------- Signature ---------------- */
+.signature-pad {
+  display: block;
+  width: 100%;
+  max-width: 600px;
+  height: 180px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  touch-action: none;
+  margin-bottom: 8px;
+}
+.signature-block { margin: 16px 0; }
+.c-signature-img {
+  display: block;
+  max-width: 100%;
+  max-height: 140px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+/* ---------------- Approval ---------------- */
+.approval-badge { margin: 4px 0 12px; }
+.badge-pending, .badge-approved, .badge-rejected {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.badge-pending { background: #f1e6c9; color: #7a5b00; }
+.badge-approved { background: #d9f0dd; color: var(--success); }
+.badge-rejected { background: #f6d9d6; color: var(--danger); }
+.approval-section, .edit-section { margin-top: 20px; }
+.approval-actions { display: flex; gap: 10px; margin-top: 10px; }
+.approval-actions .btn { flex: 1; }
+
+.btn-danger { color: var(--danger); }
+
+/* ---------------- Edit toggle sections ---------------- */
+.edit-toggle-btn { margin-bottom: 10px; }
+
+/* ---------------- Personnel ---------------- */
+.personnel-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.personnel-actions .btn { margin-top: 0; }
+.personnel-edit-form {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px 14px;
+  margin-top: 10px;
+  background: var(--bg);
+}
+.role-checkboxes { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 6px 0 4px; }
+.role-checkboxes .checkbox-label { margin: 4px 0; }
+
+/* ---------------- Print ---------------- */
+@media print {
+  .bottom-nav, .topbar, .no-print { display: none !important; }
+  #main-content { padding: 0; max-width: 100%; }
+  .panel { box-shadow: none; padding: 0; }
+  body { background: #fff; }
+}

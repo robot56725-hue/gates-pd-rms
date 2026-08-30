@@ -3,7 +3,13 @@
 const express = require('express');
 const { authenticate, requireRoles } = require('../middleware/auth');
 const { withDbAudit } = require('../middleware/dbAudit');
-const { createCitation, listCitations, getCitationById } = require('../controllers/citations.controller');
+const {
+  createCitation,
+  listCitations,
+  getCitationById,
+  updateCitation,
+  approveCitation,
+} = require('../controllers/citations.controller');
 
 const router = express.Router();
 
@@ -30,6 +36,28 @@ router.post(
   withDbAudit('e_citations'),
   requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
   createCitation
+);
+
+// Correcting a mistake on an already-issued citation -- same role set as
+// creation. Re-pointing a citation at a different violator/vehicle is
+// intentionally NOT supported here; see the comment above updateCitation.
+router.patch(
+  '/:id',
+  authenticate,
+  withDbAudit('e_citations'),
+  requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
+  updateCitation
+);
+
+// Approve/Reject -- Supervisor and System_Admin only. Deliberately excludes
+// Patrol_Officer: an officer should not be able to approve their own
+// citation.
+router.patch(
+  '/:id/approval',
+  authenticate,
+  withDbAudit('e_citations'),
+  requireRoles('Supervisor', 'System_Admin'),
+  approveCitation
 );
 
 module.exports = router;

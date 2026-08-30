@@ -3,7 +3,7 @@
 const express = require('express');
 const { authenticate, requireRoles } = require('../middleware/auth');
 const { withDbAudit } = require('../middleware/dbAudit');
-const { listUsers, createUser, updateUser } = require('../controllers/users.controller');
+const { listUsers, createUser, updateUser, deleteUser } = require('../controllers/users.controller');
 
 const router = express.Router();
 
@@ -14,5 +14,6 @@ const router = express.Router();
 router.get('/', authenticate, requireRoles('System_Admin'), withDbAudit('users'), listUsers);
 router.post('/', authenticate, requireRoles('System_Admin'), withDbAudit('users'), createUser);
 router.patch('/:id', authenticate, requireRoles('System_Admin'), withDbAudit('users'), updateUser);
+router.delete('/:id', authenticate, requireRoles('System_Admin'), withDbAudit('users'), deleteUser);
 
 module.exports = router;

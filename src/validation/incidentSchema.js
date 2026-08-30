@@ -229,6 +229,10 @@ const incidentCreateSchema = Joi.object({
   .and('latitude', 'longitude')
   .options({ abortEarly: false, presence: 'optional' });
 
+// Deliberately scoped to fields that live directly on `incidents` --
+// re-working the nested offenses/persons/relationships/property collections
+// is a rarer, higher-stakes correction handled separately, not through this
+// endpoint (mirrors citationUpdateSchema's same scoping decision).
 const incidentUpdateSchema = Joi.object({
   status: Joi.string()
     .valid(...INCIDENT_STATUSES)
@@ -237,7 +241,16 @@ const incidentUpdateSchema = Joi.object({
     .valid(...EXCEPTIONAL_CLEARANCE_VALUES)
     .optional(),
   cleared_date: Joi.date().iso().optional(),
+
+  occurrence_date: Joi.date().iso().optional(),
+  location_address: Joi.string().trim().min(1).max(255).optional(),
+  location_type: Joi.string()
+    .valid(...LOCATION_TYPES)
+    .optional(),
+  latitude: Joi.number().min(-90).max(90).optional(),
+  longitude: Joi.number().min(-180).max(180).optional(),
 })
+  .and('latitude', 'longitude')
   .min(1)
   .message('At least one field must be provided to update the incident.')
   .options({ abortEarly: false, presence: 'optional' });
