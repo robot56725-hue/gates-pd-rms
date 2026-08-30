@@ -203,6 +203,7 @@
             <div class="field field-wide"><span class="field-label">Location</span><span class="field-value c-location"></span></div>
             <div class="field field-full"><span class="field-label">Description of Offense</span><span class="field-value c-description"></span></div>
             <div class="field"><span class="field-label">T.C.A. Code</span><span class="field-value c-tca"></span></div>
+            <div class="field"><span class="field-label">Speed Detection</span><span class="field-value c-speed-detection"></span></div>
             <div class="field field-wide">
               <span class="field-label">Vehicle/Load Type</span>
               <span class="checkbox-flags">
@@ -219,6 +220,7 @@
           <div class="ticket-grid">
             <div class="field field-wide"><span class="field-label">Officer</span><span class="field-value c-officer"></span></div>
             <div class="field"><span class="field-label">Agency</span><span class="field-value c-agency"></span></div>
+            <div class="field"><span class="field-label">Agency ORI</span><span class="field-value">TN049044</span></div>
           </div>
         </div>
 
@@ -284,6 +286,16 @@
           <textarea id="ce-description" rows="2"></textarea>
           <label for="ce-tca">T.C.A. Code</label>
           <input id="ce-tca" />
+          <label for="ce-speed-detection">Speed Detection Method</label>
+          <select id="ce-speed-detection">
+            <option value="">-- leave unchanged --</option>
+            <option value="Radar">Radar</option>
+            <option value="Lidar">Lidar</option>
+            <option value="Paced">Paced</option>
+            <option value="VASCAR">VASCAR</option>
+            <option value="Visual_Estimation">Visual Estimation</option>
+            <option value="Not_Applicable">Not Applicable</option>
+          </select>
           <label for="ce-location">Location</label>
           <input id="ce-location" />
           <div class="gps-row">
@@ -435,6 +447,15 @@
           <label class="checkbox-label"><input type="checkbox" id="i-is-cmv" /> Commercial Motor Vehicle</label>
           <label class="checkbox-label"><input type="checkbox" id="i-is-hazmat" /> Hazmat</label>
           <label class="checkbox-label"><input type="checkbox" id="i-is-16plus" /> 16+ Passenger Capacity</label>
+          <label for="i-speed-detection">Speed Detection Method (if applicable)</label>
+          <select id="i-speed-detection">
+            <option value="">-- not applicable / none --</option>
+            <option value="Radar">Radar</option>
+            <option value="Lidar">Lidar</option>
+            <option value="Paced">Paced</option>
+            <option value="VASCAR">VASCAR</option>
+            <option value="Visual_Estimation">Visual Estimation</option>
+          </select>
         </fieldset>
 
         <fieldset>

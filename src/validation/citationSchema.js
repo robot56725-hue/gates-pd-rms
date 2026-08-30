@@ -30,6 +30,18 @@ const PERSON_RACE_VALUES = [
   'Unknown',
 ];
 
+// Mirrors db/migrations/010_add_speed_detection_method.sql's
+// speed_detection_method ENUM. Optional -- only meaningful for speed-related
+// offenses, and not one of the T.C.A. 55-10-207(i) mandatory data points.
+const SPEED_DETECTION_METHOD_VALUES = [
+  'Radar',
+  'Lidar',
+  'Paced',
+  'VASCAR',
+  'Visual_Estimation',
+  'Not_Applicable',
+];
+
 // (2) violator name + DOB + physical description, (3) DL number/state/class,
 // (4) CDL status. Physical description (sex, race, height, weight, eye/hair
 // color) is itself one of the mandated T.C.A. 55-10-207(i) data points, not
@@ -94,6 +106,10 @@ const offenseSchema = Joi.object({
   is_cmv: Joi.boolean().required(),
   is_hazmat: Joi.boolean().required(),
   passenger_capacity_16plus: Joi.boolean().required(),
+
+  speed_detection_method: Joi.string()
+    .valid(...SPEED_DETECTION_METHOD_VALUES)
+    .optional(),
 }).required();
 
 // (13) court date/time/location/name, as assigned at citation issuance.
@@ -165,6 +181,9 @@ const citationUpdateSchema = Joi.object({
   is_cmv: Joi.boolean().optional(),
   is_hazmat: Joi.boolean().optional(),
   passenger_capacity_16plus: Joi.boolean().optional(),
+  speed_detection_method: Joi.string()
+    .valid(...SPEED_DETECTION_METHOD_VALUES)
+    .optional(),
   court_date: isoDate().optional(),
   court_time: isoTime().optional(),
   court_location: Joi.string().trim().min(1).max(255).optional(),
@@ -201,4 +220,5 @@ module.exports = {
   citationListQuerySchema,
   PERSON_SEX_VALUES,
   PERSON_RACE_VALUES,
+  SPEED_DETECTION_METHOD_VALUES,
 };

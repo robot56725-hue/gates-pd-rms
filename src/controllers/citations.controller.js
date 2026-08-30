@@ -86,17 +86,17 @@ const createCitation = asyncHandler(async (req, res) => {
     `INSERT INTO e_citations
         (id, citation_number, violator_id, vehicle_id, officer_id,
          offense_date, location, latitude, longitude, offense_description, tca_code,
-         is_cmv, is_hazmat, passenger_capacity_16plus,
+         is_cmv, is_hazmat, passenger_capacity_16plus, speed_detection_method,
          court_date, court_location, court_name,
          violator_signature, violator_refused_to_sign,
          device_created_at)
      VALUES
         (COALESCE($1, gen_random_uuid()), $2, $3, $4, $5,
          $6, $7, $8, $9, $10, $11,
-         $12, $13, $14,
-         $15, $16, $17,
-         $18, $19,
-         $20)
+         $12, $13, $14, $15,
+         $16, $17, $18,
+         $19, $20,
+         $21)
      RETURNING id, citation_number, court_filing_deadline, device_created_at`,
     [
       payload.id || null,
@@ -113,6 +113,7 @@ const createCitation = asyncHandler(async (req, res) => {
       payload.offense.is_cmv,
       payload.offense.is_hazmat,
       payload.offense.passenger_capacity_16plus,
+      payload.offense.speed_detection_method || null,
       courtTimestamp,
       payload.court.court_location.trim(),
       payload.court.court_name.trim(),
@@ -139,7 +140,7 @@ const createCitation = asyncHandler(async (req, res) => {
 const CITATION_JOIN_COLUMNS = `
   c.id, c.citation_number, c.offense_date, c.location, c.latitude, c.longitude,
   c.offense_description, c.tca_code,
-  c.is_cmv, c.is_hazmat, c.passenger_capacity_16plus,
+  c.is_cmv, c.is_hazmat, c.passenger_capacity_16plus, c.speed_detection_method,
   c.court_date, c.court_location, c.court_name, c.court_filing_deadline,
   c.violator_signature, c.violator_refused_to_sign,
   c.approval_status, c.approved_by_id, c.approved_at, c.approval_notes,
@@ -274,10 +275,11 @@ const updateCitation = asyncHandler(async (req, res) => {
         is_cmv                      = COALESCE($6, is_cmv),
         is_hazmat                   = COALESCE($7, is_hazmat),
         passenger_capacity_16plus   = COALESCE($8, passenger_capacity_16plus),
-        court_date                  = COALESCE($9, court_date),
-        court_location              = COALESCE($10, court_location),
-        court_name                  = COALESCE($11, court_name)
-      WHERE id = $12
+        speed_detection_method      = COALESCE($9, speed_detection_method),
+        court_date                  = COALESCE($10, court_date),
+        court_location              = COALESCE($11, court_location),
+        court_name                  = COALESCE($12, court_name)
+      WHERE id = $13
       RETURNING id, citation_number`,
     [
       value.location ? value.location.trim() : null,
@@ -288,6 +290,7 @@ const updateCitation = asyncHandler(async (req, res) => {
       value.is_cmv ?? null,
       value.is_hazmat ?? null,
       value.passenger_capacity_16plus ?? null,
+      value.speed_detection_method || null,
       courtTimestamp,
       value.court_location ? value.court_location.trim() : null,
       value.court_name ? value.court_name.trim() : null,

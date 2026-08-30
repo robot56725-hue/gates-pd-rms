@@ -606,6 +606,7 @@ async function renderCitationDetail(id, backTo) {
     mainContent.querySelector('.c-location').textContent = c.location;
     mainContent.querySelector('.c-description').textContent = c.offense_description;
     mainContent.querySelector('.c-tca').textContent = c.tca_code;
+    mainContent.querySelector('.c-speed-detection').textContent = fmtEnum(c.speed_detection_method);
     mainContent.querySelector('.c-flag-cmv').classList.toggle('flag-active', !!c.is_cmv);
     mainContent.querySelector('.c-flag-hazmat').classList.toggle('flag-active', !!c.is_hazmat);
     mainContent.querySelector('.c-flag-16plus').classList.toggle('flag-active', !!c.passenger_capacity_16plus);
@@ -654,6 +655,7 @@ async function renderCitationDetail(id, backTo) {
       wireEditToggle(editToggle, editForm);
       document.getElementById('ce-description').value = c.offense_description || '';
       document.getElementById('ce-tca').value = c.tca_code || '';
+      document.getElementById('ce-speed-detection').value = '';
       document.getElementById('ce-location').value = c.location || '';
       document.getElementById('ce-latitude').value = c.latitude ?? '';
       document.getElementById('ce-longitude').value = c.longitude ?? '';
@@ -678,6 +680,7 @@ async function renderCitationDetail(id, backTo) {
         const body = {};
         if (val('ce-description')) body.offense_description = val('ce-description');
         if (val('ce-tca')) body.tca_code = val('ce-tca');
+        if (val('ce-speed-detection')) body.speed_detection_method = val('ce-speed-detection');
         if (val('ce-location')) body.location = val('ce-location');
         if (val('ce-latitude') !== '' && val('ce-longitude') !== '') {
           body.latitude = Number(val('ce-latitude'));
@@ -916,6 +919,7 @@ function renderIssueForm() {
         is_cmv: checked('i-is-cmv'),
         is_hazmat: checked('i-is-hazmat'),
         passenger_capacity_16plus: checked('i-is-16plus'),
+        speed_detection_method: val('i-speed-detection') || undefined,
       },
       court: {
         court_date: val('i-court-date'),

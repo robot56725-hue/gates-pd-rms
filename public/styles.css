@@ -456,12 +456,59 @@ legend {
 }
 
 /* ---------------- Print ---------------- */
+/* Citation tickets are meant to print as a single page. Keeping the whole
+   @page + citation-ticket rule set together (rather than relying on browser
+   defaults) is what makes that reliable across printers -- tight margins,
+   small-but-legible type, and no wasted vertical space between sections. */
+@page {
+  size: letter portrait;
+  margin: 0.3in;
+}
+
 @media print {
   .bottom-nav, .topbar, .no-print { display: none !important; }
   #main-content { padding: 0; max-width: 100%; }
   .panel { box-shadow: none; padding: 0; }
   body { background: #fff; }
-  .citation-ticket { border-color: #000; font-size: 11px; }
+
+  /* Letterhead: shrink so the ticket itself gets the vertical space. */
+  .report-letterhead { padding-bottom: 4px; margin-bottom: 6px; gap: 8px; }
+  .report-logo { width: 34px; height: 34px; }
+  .report-dept-name { font-size: 0.85rem; }
+  .report-dept-contact { font-size: 0.68rem; }
+
+  .citation-ticket {
+    border-color: #000;
+    border-width: 1.5px;
+    padding: 8px 10px 10px;
+    margin: 0;
+    font-size: 9.5px;
+    line-height: 1.25;
+  }
   .ticket-state, .ticket-number-value, .ticket-section-title { color: #000; }
+  .ticket-title-row { padding-bottom: 5px; margin-bottom: 6px; }
+  .ticket-state { font-size: 11px; }
+  .ticket-authority { font-size: 8.5px; }
+  .ticket-number-label { font-size: 7px; }
+  .ticket-number-value { font-size: 12px; }
+
+  .ticket-section { margin: 5px 0; }
+  .ticket-section-title { font-size: 8.5px; margin-bottom: 3px; padding-bottom: 2px; }
+  .ticket-grid { gap: 3px 10px; }
+  .field-label { font-size: 6.5px; }
+  .field-value { font-weight: 700; }
+
+  .flag { padding: 0 5px; font-size: 8px; }
   .flag-active { background: #000; border-color: #000; }
+
+  .ticket-two-col { margin: 8px 0; gap: 0 14px; }
+  .ticket-col { padding-top: 5px; }
+  .ticket-legal-text { font-size: 8px; line-height: 1.2; margin: 4px 0; }
+  .hint { font-size: 8px; }
+
+  .ticket-disposition { padding-top: 6px; }
+  .ticket-signature-row { margin-top: 8px; }
+  .officer-signature-line { height: 26px; }
+  .signature-line-label { font-size: 7px; padding-top: 2px; }
+  .c-signature-img { max-height: 60px; }
 }
