@@ -21,6 +21,8 @@ const evidenceRoutes = require('./routes/evidence.routes');
 const casesRoutes = require('./routes/cases.routes');
 const judgesRoutes = require('./routes/judges.routes');
 const docketsRoutes = require('./routes/dockets.routes');
+const remindersRoutes = require('./routes/reminders.routes');
+const dashboardRoutes = require('./routes/dashboard.routes');
 
 const app = express();
 
@@ -63,6 +65,8 @@ app.use('/api/evidence', evidenceRoutes);
 app.use('/api/cases', casesRoutes);
 app.use('/api/judges', judgesRoutes);
 app.use('/api/dockets', docketsRoutes);
+app.use('/api/reminders', remindersRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
