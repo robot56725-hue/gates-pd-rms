@@ -370,10 +370,98 @@ legend {
 .role-checkboxes { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 6px 0 4px; }
 .role-checkboxes .checkbox-label { margin: 4px 0; }
 
+/* ---------------- Citation ticket (print-style uniform citation) ---------------- */
+.citation-ticket {
+  border: 2px solid var(--navy);
+  border-radius: 6px;
+  padding: 12px 14px 14px;
+  margin: 10px 0 20px;
+  font-size: 0.85rem;
+}
+
+.ticket-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 2px solid var(--navy);
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+}
+.ticket-state { font-weight: 700; color: var(--navy); font-size: 1rem; }
+.ticket-authority { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.ticket-number-box { text-align: right; flex-shrink: 0; }
+.ticket-number-label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.ticket-number-value { font-weight: 700; font-size: 1.05rem; color: var(--navy); }
+
+.ticket-section { margin: 10px 0; break-inside: avoid; }
+.ticket-section-title {
+  margin: 0 0 6px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+  color: var(--navy);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ticket-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px 14px;
+}
+.field { display: flex; flex-direction: column; min-width: 0; }
+.field-label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.field-value { font-weight: 600; word-break: break-word; }
+.field-wide { grid-column: span 2; }
+.field-full { grid-column: 1 / -1; }
+
+.checkbox-flags { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 2px; }
+.flag {
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.flag-active { border-color: var(--navy); color: #fff; background: var(--navy); }
+
+.ticket-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 18px;
+  margin: 14px 0;
+  break-inside: avoid;
+}
+.ticket-col { border-top: 1px solid var(--border); padding-top: 8px; }
+.ticket-legal-text { font-size: 0.78rem; line-height: 1.4; margin: 6px 0; }
+
+.ticket-disposition { border-top: 1px dashed var(--border); padding-top: 10px; }
+
+.ticket-signature-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 18px;
+  margin-top: 16px;
+  break-inside: avoid;
+}
+.officer-signature-block { display: flex; flex-direction: column; justify-content: flex-end; }
+.officer-signature-line { border-bottom: 1px solid var(--muted); height: 44px; }
+.signature-line-label { font-size: 0.72rem; color: var(--muted); margin-top: 4px; border-top: 1px solid var(--muted); padding-top: 3px; }
+
+@media (max-width: 560px) {
+  .ticket-grid { grid-template-columns: repeat(2, 1fr); }
+  .ticket-two-col, .ticket-signature-row { grid-template-columns: 1fr; }
+}
+
 /* ---------------- Print ---------------- */
 @media print {
   .bottom-nav, .topbar, .no-print { display: none !important; }
   #main-content { padding: 0; max-width: 100%; }
   .panel { box-shadow: none; padding: 0; }
   body { background: #fff; }
+  .citation-ticket { border-color: #000; font-size: 11px; }
+  .ticket-state, .ticket-number-value, .ticket-section-title { color: #000; }
+  .flag-active { background: #000; border-color: #000; }
 }

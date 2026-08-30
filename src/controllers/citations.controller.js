@@ -145,13 +145,17 @@ const CITATION_JOIN_COLUMNS = `
   c.approval_status, c.approved_by_id, c.approved_at, c.approval_notes,
   c.device_created_at, c.created_at,
   p.id AS violator_id, p.first_name AS violator_first_name, p.last_name AS violator_last_name,
+  p.dob AS violator_dob,
   p.sex AS violator_sex, p.race AS violator_race,
   p.height_inches AS violator_height_inches, p.weight_lbs AS violator_weight_lbs,
   p.eye_color AS violator_eye_color, p.hair_color AS violator_hair_color,
   p.drivers_license_num AS violator_dl_number, p.dl_state AS violator_dl_state,
+  p.dl_class AS violator_dl_class, p.is_cdl AS violator_is_cdl,
   p.address AS violator_address,
-  v.id AS vehicle_id, v.plate_number, v.plate_state, v.make, v.model, v.year AS vehicle_year, v.color AS vehicle_color,
+  v.id AS vehicle_id, v.vin AS vehicle_vin, v.plate_number, v.plate_state, v.plate_year,
+  v.make, v.model, v.year AS vehicle_year, v.color AS vehicle_color, v.owner_name AS vehicle_owner_name,
   u.id AS officer_id, u.full_name AS officer_name, u.badge_number AS officer_badge,
+  u.officer_rank AS officer_rank, u.agency AS officer_agency,
   approver.full_name AS approved_by_name,
   cl.court_status, cl.fine_amount_due, cl.amount_paid
 `;

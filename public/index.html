@@ -147,34 +147,119 @@
           <div class="report-dept-contact">10085 2nd Street, Gates, TN 38037 &middot; (731) 290-0614</div>
         </div>
       </div>
-      <h2 class="c-number"></h2>
-      <p class="c-approval-badge approval-badge"></p>
-      <dl class="detail-grid">
-        <dt>Violator</dt><dd class="c-violator"></dd>
-        <dt>Vehicle</dt><dd class="c-vehicle"></dd>
-        <dt>Officer</dt><dd class="c-officer"></dd>
-        <dt>Offense Date</dt><dd class="c-offense-date"></dd>
-        <dt>Location</dt><dd class="c-location"></dd>
-        <dt>Offense</dt><dd class="c-description"></dd>
-        <dt>T.C.A. Code</dt><dd class="c-tca"></dd>
-        <dt>Court Date</dt><dd class="c-court-date"></dd>
-        <dt>Court</dt><dd class="c-court-name"></dd>
-        <dt>Filing Deadline</dt><dd class="c-deadline"></dd>
-        <dt>Status</dt><dd class="c-status"></dd>
-        <dt>Fine Due</dt><dd class="c-fine"></dd>
-        <dt>Paid</dt><dd class="c-paid"></dd>
-      </dl>
 
-      <div class="court-notice">
-        <h3>Notice to Appear</h3>
-        <p>You are required to appear on the court date and time shown above. <strong>Failure to appear as required is punishable as contempt of court.</strong> To handle this citation before your court date, pay online or contact the Gates Municipal Court Clerk at 10085 2nd Street, Gates, TN 38037, (731) 836-7501.</p>
-      </div>
+      <div class="citation-ticket">
+        <div class="ticket-title-row">
+          <div class="ticket-title">
+            <div class="ticket-state">State of Tennessee &mdash; Uniform Traffic Citation and Complaint</div>
+            <div class="ticket-authority">City of Gates &middot; Gates Municipal Court</div>
+          </div>
+          <div class="ticket-number-box">
+            <div class="ticket-number-label">Citation No.</div>
+            <div class="c-number ticket-number-value"></div>
+            <p class="c-approval-badge approval-badge"></p>
+          </div>
+        </div>
 
-      <div class="signature-block">
-        <h3>Violator Signature</h3>
-        <p class="hint">Signature acknowledges receipt of this citation and a promise to appear; it is not an admission of guilt.</p>
-        <img class="c-signature-img" alt="Violator signature" hidden />
-        <p class="c-signature-refused hint" hidden>Violator refused to sign.</p>
+        <div class="ticket-section">
+          <h3 class="ticket-section-title">Violator</h3>
+          <div class="ticket-grid">
+            <div class="field field-wide"><span class="field-label">Name</span><span class="field-value c-violator-name"></span></div>
+            <div class="field"><span class="field-label">DOB</span><span class="field-value c-violator-dob"></span></div>
+            <div class="field"><span class="field-label">Sex</span><span class="field-value c-violator-sex"></span></div>
+            <div class="field"><span class="field-label">Race</span><span class="field-value c-violator-race"></span></div>
+            <div class="field"><span class="field-label">Height</span><span class="field-value c-violator-height"></span></div>
+            <div class="field"><span class="field-label">Weight</span><span class="field-value c-violator-weight"></span></div>
+            <div class="field"><span class="field-label">Eyes</span><span class="field-value c-violator-eyes"></span></div>
+            <div class="field"><span class="field-label">Hair</span><span class="field-value c-violator-hair"></span></div>
+            <div class="field field-wide"><span class="field-label">Address</span><span class="field-value c-violator-address"></span></div>
+            <div class="field"><span class="field-label">Driver License #</span><span class="field-value c-violator-dl"></span></div>
+            <div class="field"><span class="field-label">DL State</span><span class="field-value c-violator-dl-state"></span></div>
+            <div class="field"><span class="field-label">Class</span><span class="field-value c-violator-dl-class"></span></div>
+            <div class="field"><span class="field-label">CDL</span><span class="field-value c-violator-cdl"></span></div>
+          </div>
+        </div>
+
+        <div class="ticket-section">
+          <h3 class="ticket-section-title">Vehicle</h3>
+          <div class="ticket-grid">
+            <div class="field"><span class="field-label">Plate #</span><span class="field-value c-plate"></span></div>
+            <div class="field"><span class="field-label">Plate State</span><span class="field-value c-plate-state"></span></div>
+            <div class="field"><span class="field-label">Plate Year</span><span class="field-value c-plate-year"></span></div>
+            <div class="field"><span class="field-label">Vehicle Year</span><span class="field-value c-vehicle-year"></span></div>
+            <div class="field"><span class="field-label">Make</span><span class="field-value c-make"></span></div>
+            <div class="field"><span class="field-label">Model</span><span class="field-value c-model"></span></div>
+            <div class="field"><span class="field-label">Color</span><span class="field-value c-color"></span></div>
+            <div class="field field-wide"><span class="field-label">VIN</span><span class="field-value c-vin"></span></div>
+            <div class="field field-wide"><span class="field-label">Registered Owner</span><span class="field-value c-owner"></span></div>
+          </div>
+        </div>
+
+        <div class="ticket-section">
+          <h3 class="ticket-section-title">Offense</h3>
+          <div class="ticket-grid">
+            <div class="field"><span class="field-label">Date</span><span class="field-value c-offense-date"></span></div>
+            <div class="field"><span class="field-label">Time</span><span class="field-value c-offense-time"></span></div>
+            <div class="field field-wide"><span class="field-label">Location</span><span class="field-value c-location"></span></div>
+            <div class="field field-full"><span class="field-label">Description of Offense</span><span class="field-value c-description"></span></div>
+            <div class="field"><span class="field-label">T.C.A. Code</span><span class="field-value c-tca"></span></div>
+            <div class="field field-wide">
+              <span class="field-label">Vehicle/Load Type</span>
+              <span class="checkbox-flags">
+                <span class="flag c-flag-cmv">CMV</span>
+                <span class="flag c-flag-hazmat">Hazmat</span>
+                <span class="flag c-flag-16plus">16+ Passenger</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ticket-section">
+          <h3 class="ticket-section-title">Issuing Officer</h3>
+          <div class="ticket-grid">
+            <div class="field field-wide"><span class="field-label">Officer</span><span class="field-value c-officer"></span></div>
+            <div class="field"><span class="field-label">Agency</span><span class="field-value c-agency"></span></div>
+          </div>
+        </div>
+
+        <div class="ticket-two-col">
+          <div class="ticket-col ticket-col-complaint">
+            <h3 class="ticket-section-title">Complaint</h3>
+            <p class="ticket-legal-text">The undersigned officer, being duly sworn, states that on the date and at the time and place shown above, the above-named defendant did unlawfully commit the offense described above, in violation of the Tennessee Code Annotated section cited, contrary to the statute in such case made and provided and against the peace and dignity of the State of Tennessee.</p>
+            <p class="hint">Issued under authority of T.C.A. &sect; 55-10-207 in lieu of physical arrest for the offense charged.</p>
+          </div>
+          <div class="ticket-col ticket-col-notice">
+            <h3 class="ticket-section-title">Notice to Appear</h3>
+            <div class="ticket-grid">
+              <div class="field field-wide"><span class="field-label">Court Date/Time</span><span class="field-value c-court-date"></span></div>
+              <div class="field field-wide"><span class="field-label">Court</span><span class="field-value c-court-name"></span></div>
+              <div class="field field-wide"><span class="field-label">Filing Deadline</span><span class="field-value c-deadline"></span></div>
+            </div>
+            <p class="ticket-legal-text">You are required by law to appear at the court above on the date and time shown. <strong>Failure to appear as required is punishable as contempt of court and may result in suspension of your driving privileges.</strong> To handle this citation before your court date, contact the Gates Municipal Court Clerk at 10085 2nd Street, Gates, TN 38037, (731) 836-7501.</p>
+          </div>
+        </div>
+
+        <div class="ticket-section ticket-disposition">
+          <h3 class="ticket-section-title">Court Disposition</h3>
+          <div class="ticket-grid">
+            <div class="field"><span class="field-label">Status</span><span class="field-value c-status"></span></div>
+            <div class="field"><span class="field-label">Fine Due</span><span class="field-value c-fine"></span></div>
+            <div class="field"><span class="field-label">Paid</span><span class="field-value c-paid"></span></div>
+          </div>
+        </div>
+
+        <div class="ticket-signature-row">
+          <div class="signature-block">
+            <p class="hint">My signature below acknowledges only that I have received a copy of this citation and I promise to appear at the time and place stated above, or otherwise satisfy this citation as instructed. This is <strong>not</strong> an admission of guilt.</p>
+            <img class="c-signature-img" alt="Violator signature" hidden />
+            <p class="c-signature-refused hint" hidden><em>Violator refused to sign.</em></p>
+            <div class="signature-line-label">Violator's Signature</div>
+          </div>
+          <div class="officer-signature-block">
+            <div class="officer-signature-line"></div>
+            <div class="signature-line-label">Issuing Officer's Signature &mdash; <span class="c-officer-2"></span></div>
+          </div>
+        </div>
       </div>
 
       <div class="approval-section no-print">

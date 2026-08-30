@@ -230,6 +230,38 @@ function fmtStatus(value) {
   return value ? value.replace(/_/g, ' ') : 'Pending';
 }
 
+function fmtDateOnly(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString();
+}
+
+function fmtTimeOnly(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtHeight(inches) {
+  if (inches === null || inches === undefined) return '—';
+  const feet = Math.floor(inches / 12);
+  const remainder = inches % 12;
+  return `${feet}'${remainder}"`;
+}
+
+function fmtYesNo(value) {
+  if (value === null || value === undefined) return '—';
+  return value ? 'Yes' : 'No';
+}
+
+function fmtEnum(value) {
+  return value ? String(value).replace(/_/g, ' ') : '—';
+}
+
+function fmtOrDash(value) {
+  return value === null || value === undefined || value === '' ? '—' : value;
+}
+
 // ------------------------------------------------------------------
 // Shared: approval workflow, edit-toggle, print -- reused across the
 // citation/incident/crash/evidence detail views, which all carry the same
@@ -541,13 +573,49 @@ async function renderCitationDetail(id, backTo) {
   try {
     const c = await apiFetch(`/api/citations/${id}`);
     mainContent.querySelector('.c-number').textContent = c.citation_number;
-    mainContent.querySelector('.c-violator').textContent = `${c.violator_last_name}, ${c.violator_first_name}`;
-    mainContent.querySelector('.c-vehicle').textContent = `${c.plate_number} (${c.plate_state}) — ${c.make} ${c.model}`;
-    mainContent.querySelector('.c-officer').textContent = `${c.officer_name} (#${c.officer_badge})`;
-    mainContent.querySelector('.c-offense-date').textContent = fmtDateTime(c.offense_date);
+
+    // Violator
+    mainContent.querySelector('.c-violator-name').textContent = `${c.violator_last_name}, ${c.violator_first_name}`;
+    mainContent.querySelector('.c-violator-dob').textContent = fmtDateOnly(c.violator_dob);
+    mainContent.querySelector('.c-violator-sex').textContent = fmtEnum(c.violator_sex);
+    mainContent.querySelector('.c-violator-race').textContent = fmtEnum(c.violator_race);
+    mainContent.querySelector('.c-violator-height').textContent = fmtHeight(c.violator_height_inches);
+    mainContent.querySelector('.c-violator-weight').textContent = c.violator_weight_lbs != null ? `${c.violator_weight_lbs} lbs` : '—';
+    mainContent.querySelector('.c-violator-eyes').textContent = fmtOrDash(c.violator_eye_color);
+    mainContent.querySelector('.c-violator-hair').textContent = fmtOrDash(c.violator_hair_color);
+    mainContent.querySelector('.c-violator-address').textContent = fmtOrDash(c.violator_address);
+    mainContent.querySelector('.c-violator-dl').textContent = fmtOrDash(c.violator_dl_number);
+    mainContent.querySelector('.c-violator-dl-state').textContent = fmtOrDash(c.violator_dl_state);
+    mainContent.querySelector('.c-violator-dl-class').textContent = fmtOrDash(c.violator_dl_class);
+    mainContent.querySelector('.c-violator-cdl').textContent = fmtYesNo(c.violator_is_cdl);
+
+    // Vehicle
+    mainContent.querySelector('.c-plate').textContent = fmtOrDash(c.plate_number);
+    mainContent.querySelector('.c-plate-state').textContent = fmtOrDash(c.plate_state);
+    mainContent.querySelector('.c-plate-year').textContent = fmtOrDash(c.plate_year);
+    mainContent.querySelector('.c-vehicle-year').textContent = fmtOrDash(c.vehicle_year);
+    mainContent.querySelector('.c-make').textContent = fmtOrDash(c.make);
+    mainContent.querySelector('.c-model').textContent = fmtOrDash(c.model);
+    mainContent.querySelector('.c-color').textContent = fmtOrDash(c.vehicle_color);
+    mainContent.querySelector('.c-vin').textContent = fmtOrDash(c.vehicle_vin);
+    mainContent.querySelector('.c-owner').textContent = fmtOrDash(c.vehicle_owner_name);
+
+    // Offense
+    mainContent.querySelector('.c-offense-date').textContent = fmtDateOnly(c.offense_date);
+    mainContent.querySelector('.c-offense-time').textContent = fmtTimeOnly(c.offense_date);
     mainContent.querySelector('.c-location').textContent = c.location;
     mainContent.querySelector('.c-description').textContent = c.offense_description;
     mainContent.querySelector('.c-tca').textContent = c.tca_code;
+    mainContent.querySelector('.c-flag-cmv').classList.toggle('flag-active', !!c.is_cmv);
+    mainContent.querySelector('.c-flag-hazmat').classList.toggle('flag-active', !!c.is_hazmat);
+    mainContent.querySelector('.c-flag-16plus').classList.toggle('flag-active', !!c.passenger_capacity_16plus);
+
+    // Officer / agency
+    const officerLine = `${c.officer_name}${c.officer_rank ? ' — ' + fmtEnum(c.officer_rank) : ''} (Badge #${c.officer_badge})`;
+    mainContent.querySelectorAll('.c-officer, .c-officer-2').forEach((el) => { el.textContent = officerLine; });
+    mainContent.querySelector('.c-agency').textContent = fmtOrDash(c.officer_agency);
+
+    // Court / disposition
     mainContent.querySelector('.c-court-date').textContent = fmtDateTime(c.court_date);
     mainContent.querySelector('.c-court-name').textContent = `${c.court_name} — ${c.court_location}`;
     mainContent.querySelector('.c-deadline').textContent = fmtDateTime(c.court_filing_deadline);
