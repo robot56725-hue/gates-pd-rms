@@ -155,12 +155,28 @@ const updateUser = asyncHandler(async (req, res) => {
  * Deliberately NOT guarded against an account with history by application
  * code -- every table that references users.id (e_citations.officer_id,
  * incidents.reporting_officer_id, evidence_items.collected_by_id, etc.) does
- * so with the default ON DELETE RESTRICT/NO ACTION, so the database itself
- * refuses to delete an account with any real record attached to it (caught
- * below as a foreign_key_violation) and Postgres does the enforcing, not a
- * checklist of every table this code has to remember to check. Use
- * deactivation (PATCH is_active=false) for an account with a history;
- * DELETE is for a never-used or mistakenly-created account.
+ * so with an explicit ON DELETE RESTRICT or NO ACTION, so the database itself
+ * refuses to delete an account with any real record attached to it and
+ * Postgres does the enforcing, not a checklist of every table this code has
+ * to remember to check. Use deactivation (PATCH is_active=false) for an
+ * account with a history; DELETE is for a never-used or mistakenly-created
+ * account.
+ *
+ * RESTRICT and NO ACTION are NOT the same Postgres error code, even though
+ * they enforce the same thing: NO ACTION raises 23503
+ * (foreign_key_violation, the standard one), but an explicit RESTRICT raises
+ * 23001 (restrict_violation) instead -- a different SQLSTATE most people
+ * (this codebase included, until this fix) don't know exists. Most of the
+ * FKs into users.id here were deliberately declared RESTRICT rather than
+ * left as the implicit NO ACTION default, so catching only 23503 caught
+ * just the minority (approved_by_id columns, evidence_items/evidence_
+ * custody_log) and let every RESTRICT violation (incidents.reporting_
+ * officer_id, incident_narratives.author_id, e_citations.officer_id,
+ * court_cases.filed_by_id, court_dockets.created_by_id, court_payments.
+ * received_by_id, court_warrants.created_by_id, crash_reports.reporting_
+ * officer_id, case_notes.author_id, matters_of_record.reporting_officer_id
+ * -- i.e. most real accounts) fall through unrecognized to errorHandler.js's
+ * generic 500, instead of this friendly 409.
  */
 const deleteUser = asyncHandler(async (req, res) => {
   if (req.params.id === req.user.id) {
@@ -173,10 +189,10 @@ const deleteUser = asyncHandler(async (req, res) => {
       req.params.id,
     ]));
   } catch (err) {
-    if (err.code === '23503') {
+    if (err.code === '23503' || err.code === '23001') {
       throw new AppError(
         409,
-        'This account has citations, incidents, crash reports, or evidence on file and cannot be deleted. Deactivate it instead.'
+        'This account has citations, incidents, crash reports, evidence, court records, or matters of record on file and cannot be deleted. Deactivate it instead.'
       );
     }
     throw err;

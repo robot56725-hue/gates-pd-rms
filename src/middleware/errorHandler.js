@@ -8,6 +8,16 @@ const AppError = require('../utils/AppError');
 const PG_ERROR_MAP = {
   '23505': { status: 409, message: 'A record with the same unique value already exists.' },
   '23503': { status: 409, message: 'The referenced record does not exist.' },
+  // Same underlying problem as 23503 (foreign_key_violation) -- a row this
+  // one references, or that references this one, is in the way -- but a
+  // different SQLSTATE: Postgres raises 23001 specifically for a foreign key
+  // declared with an explicit ON DELETE/UPDATE RESTRICT, rather than the
+  // implicit NO ACTION default that raises 23503. Several tables in this app
+  // (e.g. incidents.reporting_officer_id, e_citations.officer_id) use
+  // RESTRICT deliberately, so this is a real, reachable code path, not a
+  // hypothetical -- see the note in users.controller.js's deleteUser, where
+  // this exact gap first surfaced as an unhandled 500 on personnel deletion.
+  '23001': { status: 409, message: 'The referenced record does not exist.' },
   '23514': { status: 422, message: 'The request violates a data integrity rule.' },
   '22P02': { status: 400, message: 'Malformed input value.' },
 };
