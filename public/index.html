@@ -53,6 +53,7 @@
       <button class="nav-btn" data-view="incidents" id="nav-incidents" hidden>Incidents</button>
       <button class="nav-btn" data-view="crashes" id="nav-crashes" hidden>Crashes</button>
       <button class="nav-btn" data-view="evidence" id="nav-evidence" hidden>Evidence</button>
+      <button class="nav-btn" data-view="cases" id="nav-cases" hidden>Cases</button>
       <button class="nav-btn" data-view="personnel" id="nav-personnel" hidden>Personnel</button>
     </nav>
   </div>
@@ -966,6 +967,171 @@
           <button type="submit" class="btn btn-primary btn-block">Save Changes</button>
           <p class="eve-error error-text" hidden></p>
           <p class="eve-success success-text" hidden></p>
+        </form>
+      </div>
+    </section>
+  </template>
+
+  <template id="tpl-cases">
+    <section class="panel">
+      <h2>Cases</h2>
+      <button id="case-new-btn" class="btn btn-primary">+ New Case</button>
+
+      <form id="case-form" class="issue-form" hidden novalidate>
+        <fieldset>
+          <legend>Case Type</legend>
+          <label for="case-type">Case Type</label>
+          <select id="case-type" required>
+            <option value="Traffic_Citation">Traffic Citation</option>
+            <option value="Ordinance_Violation">Ordinance Violation</option>
+            <option value="Other">Other</option>
+          </select>
+        </fieldset>
+
+        <fieldset id="case-citation-fieldset">
+          <legend>Citation</legend>
+          <label for="case-citation-search">Find Citation (number or violator name)</label>
+          <div class="search-form">
+            <input id="case-citation-search" placeholder="Citation # or name" />
+            <button type="button" id="case-find-citation" class="btn btn-secondary">Find</button>
+          </div>
+          <p id="case-citation-status" class="hint"></p>
+          <ul id="case-citation-results" class="result-list"></ul>
+        </fieldset>
+
+        <fieldset id="case-defendant-fieldset">
+          <legend>Defendant</legend>
+          <label for="cd-first-name">First Name</label>
+          <input id="cd-first-name" />
+          <label for="cd-last-name">Last Name</label>
+          <input id="cd-last-name" />
+          <label for="cd-dob">Date of Birth</label>
+          <input id="cd-dob" type="date" />
+          <label for="cd-dl-number">Driver's License #</label>
+          <input id="cd-dl-number" />
+          <label for="cd-dl-state">DL State</label>
+          <input id="cd-dl-state" maxlength="2" />
+          <label for="cd-phone">Phone</label>
+          <input id="cd-phone" />
+          <label for="cd-address">Address</label>
+          <input id="cd-address" />
+        </fieldset>
+
+        <fieldset>
+          <legend>Intake Summary <span class="hint">(optional)</span></legend>
+          <textarea id="case-intake-summary" rows="2"></textarea>
+        </fieldset>
+
+        <fieldset>
+          <legend>Charges <span class="hint">(1 or more required)</span></legend>
+          <div id="case-charge-rows"></div>
+          <button type="button" id="case-add-charge" class="btn btn-secondary">+ Add Charge</button>
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary btn-block">Open Case</button>
+        <p id="case-form-error" class="error-text" hidden></p>
+        <p id="case-form-success" class="success-text" hidden></p>
+      </form>
+
+      <div class="filter-row">
+        <select id="case-filter-status">
+          <option value="">Any status</option>
+          <option value="Open">Open</option>
+          <option value="Closed">Closed</option>
+        </select>
+        <select id="case-filter-type">
+          <option value="">Any type</option>
+          <option value="Traffic_Citation">Traffic Citation</option>
+          <option value="Ordinance_Violation">Ordinance Violation</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="search-form">
+        <input id="case-filter-q" placeholder="Search case #, name, citation #" />
+      </div>
+      <ul id="cases-list" class="result-list"></ul>
+      <div class="pager">
+        <button id="cases-prev" class="btn btn-secondary">&larr; Prev</button>
+        <span id="cases-page-info" class="hint"></span>
+        <button id="cases-next" class="btn btn-secondary">Next &rarr;</button>
+      </div>
+    </section>
+  </template>
+
+  <template id="tpl-case-detail">
+    <section class="panel">
+      <div class="detail-toolbar no-print">
+        <button class="btn btn-link back-btn">&larr; Back to cases</button>
+        <button class="btn btn-secondary print-btn">Print</button>
+      </div>
+      <div class="report-letterhead">
+        <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
+        <div>
+          <div class="report-dept-name">Gates Police Department</div>
+          <div class="report-dept-contact">10085 2nd Street, Gates, TN 38037 &middot; (731) 290-0614</div>
+        </div>
+      </div>
+      <h2 class="cs-case-number"></h2>
+      <dl class="detail-grid">
+        <dt>Case Type</dt><dd class="cs-case-type"></dd>
+        <dt>Status</dt><dd class="cs-status"></dd>
+        <dt>Defendant</dt><dd class="cs-defendant"></dd>
+        <dt>Citation</dt><dd class="cs-citation"></dd>
+        <dt>Opened</dt><dd class="cs-opened"></dd>
+        <dt>Closed</dt><dd class="cs-closed"></dd>
+        <dt>Filed By</dt><dd class="cs-filed-by"></dd>
+      </dl>
+      <p class="cs-intake-summary"></p>
+
+      <div class="edit-section no-print">
+        <h3>Status</h3>
+        <form id="case-status-form">
+          <select id="case-status-select">
+            <option value="Open">Open</option>
+            <option value="Closed">Closed</option>
+          </select>
+          <button type="submit" class="btn btn-secondary">Update Status</button>
+          <p class="case-status-error error-text" hidden></p>
+          <p class="case-status-success success-text" hidden></p>
+        </form>
+      </div>
+
+      <h3>Charges</h3>
+      <div class="cs-charges"></div>
+
+      <div class="edit-section no-print">
+        <h4>Add Charge</h4>
+        <form id="case-add-charge-form">
+          <label for="cac-category">Category</label>
+          <select id="cac-category">
+            <option value="TCA_Traffic">TCA Traffic</option>
+            <option value="Municipal_Ordinance">Municipal Ordinance</option>
+            <option value="Other">Other</option>
+          </select>
+          <label for="cac-code">Charge Code</label>
+          <input id="cac-code" />
+          <label for="cac-description">Description</label>
+          <input id="cac-description" />
+          <label for="cac-fine">Fine Amount ($)</label>
+          <input id="cac-fine" type="number" step="0.01" min="0" />
+          <label for="cac-costs">Court Costs ($)</label>
+          <input id="cac-costs" type="number" step="0.01" min="0" />
+          <button type="submit" class="btn btn-secondary">Add Charge</button>
+          <p class="cac-error error-text" hidden></p>
+          <p class="cac-success success-text" hidden></p>
+        </form>
+      </div>
+
+      <h3>Notes</h3>
+      <ul class="result-list cs-notes"></ul>
+
+      <div class="edit-section no-print">
+        <h4>Add Note</h4>
+        <form id="case-add-note-form">
+          <textarea id="case-note-text" rows="2" required></textarea>
+          <button type="submit" class="btn btn-secondary">Add Note</button>
+          <p class="can-error error-text" hidden></p>
+          <p class="can-success success-text" hidden></p>
         </form>
       </div>
     </section>

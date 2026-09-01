@@ -146,6 +146,14 @@ function showApp() {
   document.getElementById('nav-crashes').hidden = !canOperateCases;
   document.getElementById('nav-evidence').hidden = !canOperateCases;
 
+  // Court Case Management tab -- same role set as the API's own
+  // requireRoles('Court_Clerk', 'Supervisor', 'System_Admin') guard on every
+  // write route under /api/cases (see cases.routes.js). Patrol_Officer has
+  // no reason to open/manage a court case, so this stays hidden for that
+  // role exactly like Court_Clerk stays hidden from Incidents/Crashes/
+  // Evidence above.
+  document.getElementById('nav-cases').hidden = !hasAnyRole('Court_Clerk', 'Supervisor', 'System_Admin');
+
   navigate('search');
 }
 
@@ -197,6 +205,7 @@ function navigate(view) {
   else if (view === 'incidents') renderIncidents();
   else if (view === 'crashes') renderCrashes();
   else if (view === 'evidence') renderEvidence();
+  else if (view === 'cases') renderCases();
 }
 
 function mount(templateId) {
@@ -2471,6 +2480,407 @@ async function renderEvidenceDetail(id) {
       errorEl.hidden = false;
     }
   });
+}
+
+// ------------------------------------------------------------------
+// Cases (Court Case Management -- db/migrations/011_..._court_case_management.sql)
+// ------------------------------------------------------------------
+
+let caseLinkedCitation = null; // { id, citation_number } -- set via the citation-find widget below
+let casesOffset = 0;
+const CASES_PAGE_SIZE = 20;
+
+const CHARGE_CATEGORIES = ['TCA_Traffic', 'Municipal_Ordinance', 'Other'];
+const PLEA_TYPES = ['Not_Entered', 'Guilty', 'Not_Guilty', 'No_Contest'];
+const CASE_DISPOSITION_STATUSES = ['Pending', 'Guilty', 'Not_Guilty', 'Dismissed', 'FTA_Failure_To_Appear', 'Continued'];
+
+function addCaseChargeRow() {
+  const container = document.getElementById('case-charge-rows');
+  makeRemovableRow(
+    container,
+    'charge-row',
+    `<label>Category</label>
+     <select class="chg-category">${optionsHtml(CHARGE_CATEGORIES)}</select>
+     <label>Charge Code</label>
+     <input class="chg-code" required />
+     <label>Description</label>
+     <input class="chg-description" required />
+     <label>Fine Amount ($)</label>
+     <input class="chg-fine" type="number" step="0.01" min="0" />
+     <label>Court Costs ($)</label>
+     <input class="chg-costs" type="number" step="0.01" min="0" />`
+  );
+}
+
+function renderCases() {
+  mount('tpl-cases');
+  casesOffset = 0;
+  caseLinkedCitation = null;
+
+  const newBtn = document.getElementById('case-new-btn');
+  const form = document.getElementById('case-form');
+  newBtn.addEventListener('click', () => {
+    form.hidden = !form.hidden;
+  });
+
+  document.getElementById('case-charge-rows').innerHTML = '';
+  document.getElementById('case-add-charge').addEventListener('click', addCaseChargeRow);
+  addCaseChargeRow();
+
+  const caseTypeSelect = document.getElementById('case-type');
+  const citationFieldset = document.getElementById('case-citation-fieldset');
+  const defendantFieldset = document.getElementById('case-defendant-fieldset');
+
+  function syncCaseTypeFieldsets() {
+    const isTraffic = caseTypeSelect.value === 'Traffic_Citation';
+    citationFieldset.hidden = !isTraffic;
+    defendantFieldset.hidden = isTraffic;
+    if (!isTraffic) {
+      caseLinkedCitation = null;
+      document.getElementById('case-citation-status').textContent = '';
+      document.getElementById('case-citation-results').innerHTML = '';
+    }
+  }
+  caseTypeSelect.addEventListener('change', syncCaseTypeFieldsets);
+  syncCaseTypeFieldsets();
+
+  const findBtn = document.getElementById('case-find-citation');
+  const citationStatus = document.getElementById('case-citation-status');
+  const citationResults = document.getElementById('case-citation-results');
+  findBtn.addEventListener('click', async () => {
+    const term = document.getElementById('case-citation-search').value.trim();
+    if (!term) {
+      citationStatus.textContent = 'Enter a citation number or violator name first.';
+      return;
+    }
+    citationStatus.textContent = 'Searching...';
+    citationResults.innerHTML = '';
+    try {
+      const data = await apiFetch(`/api/citations?q=${encodeURIComponent(term)}&limit=5`);
+      if (data.results.length === 0) {
+        citationStatus.textContent = 'No matching citation found.';
+        return;
+      }
+      citationStatus.textContent = `${data.results.length} match(es) — select one:`;
+      data.results.forEach((c) => {
+        const li = document.createElement('li');
+        li.className = 'result-item';
+        li.innerHTML = `<div class="r-title">${escapeHtml(c.citation_number)}</div><div class="r-sub">${escapeHtml(
+          c.violator_last_name
+        )}, ${escapeHtml(c.violator_first_name)} — ${fmtDate(c.offense_date)}</div>`;
+        li.addEventListener('click', () => {
+          caseLinkedCitation = { id: c.id, citation_number: c.citation_number };
+          citationStatus.textContent = `Linked to citation ${c.citation_number}.`;
+          citationResults.innerHTML = '';
+        });
+        citationResults.appendChild(li);
+      });
+    } catch (err) {
+      citationStatus.textContent = err.message;
+    }
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('case-form-error');
+    const successEl = document.getElementById('case-form-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+
+    const val = (id) => document.getElementById(id).value.trim();
+    const caseType = caseTypeSelect.value;
+
+    const charges = Array.from(document.querySelectorAll('#case-charge-rows .dyn-row')).map((row) => {
+      const q = (sel) => row.querySelector(sel).value.trim();
+      const charge = {
+        charge_category: row.querySelector('.chg-category').value,
+        charge_code: q('.chg-code'),
+        charge_description: q('.chg-description'),
+      };
+      if (q('.chg-fine') !== '') charge.fine_amount = Number(q('.chg-fine'));
+      if (q('.chg-costs') !== '') charge.court_costs = Number(q('.chg-costs'));
+      return charge;
+    });
+
+    const payload = { case_type: caseType, charges };
+    if (val('case-intake-summary')) payload.intake_summary = val('case-intake-summary');
+
+    if (caseType === 'Traffic_Citation') {
+      if (!caseLinkedCitation) {
+        errorEl.textContent = 'Find and select the citation this case is for first.';
+        errorEl.hidden = false;
+        return;
+      }
+      payload.citation_id = caseLinkedCitation.id;
+    } else {
+      const defendant = { first_name: val('cd-first-name'), last_name: val('cd-last-name') };
+      if (val('cd-dob')) defendant.dob = val('cd-dob');
+      if (val('cd-dl-number')) defendant.drivers_license_num = val('cd-dl-number');
+      if (val('cd-dl-state')) defendant.dl_state = val('cd-dl-state');
+      if (val('cd-phone')) defendant.phone = val('cd-phone');
+      if (val('cd-address')) defendant.address = val('cd-address');
+      payload.defendant = defendant;
+    }
+
+    try {
+      const result = await apiFetch('/api/cases', { method: 'POST', body: JSON.stringify(payload) });
+      successEl.textContent = `Case ${result.case_number} opened.`;
+      successEl.hidden = false;
+      form.reset();
+      document.getElementById('case-charge-rows').innerHTML = '';
+      addCaseChargeRow();
+      caseLinkedCitation = null;
+      citationStatus.textContent = '';
+      citationResults.innerHTML = '';
+      syncCaseTypeFieldsets();
+      loadCasesPage();
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  });
+
+  document.getElementById('case-filter-status').addEventListener('change', () => {
+    casesOffset = 0;
+    loadCasesPage();
+  });
+  document.getElementById('case-filter-type').addEventListener('change', () => {
+    casesOffset = 0;
+    loadCasesPage();
+  });
+  let caseSearchDebounce;
+  document.getElementById('case-filter-q').addEventListener('input', () => {
+    clearTimeout(caseSearchDebounce);
+    caseSearchDebounce = setTimeout(() => {
+      casesOffset = 0;
+      loadCasesPage();
+    }, 300);
+  });
+  document.getElementById('cases-prev').addEventListener('click', () => {
+    casesOffset = Math.max(0, casesOffset - CASES_PAGE_SIZE);
+    loadCasesPage();
+  });
+  document.getElementById('cases-next').addEventListener('click', () => {
+    casesOffset += CASES_PAGE_SIZE;
+    loadCasesPage();
+  });
+
+  loadCasesPage();
+}
+
+async function loadCasesPage() {
+  const listEl = document.getElementById('cases-list');
+  const pageInfo = document.getElementById('cases-page-info');
+  const status = document.getElementById('case-filter-status').value;
+  const caseType = document.getElementById('case-filter-type').value;
+  const q = document.getElementById('case-filter-q').value.trim();
+
+  const params = new URLSearchParams({ limit: String(CASES_PAGE_SIZE), offset: String(casesOffset) });
+  if (status) params.set('case_status', status);
+  if (caseType) params.set('case_type', caseType);
+  if (q) params.set('q', q);
+
+  listEl.innerHTML = '<li class="hint">Loading...</li>';
+  try {
+    const data = await apiFetch(`/api/cases?${params.toString()}`);
+    listEl.innerHTML = '';
+    if (data.results.length === 0) {
+      listEl.innerHTML = '<li class="hint">No cases match.</li>';
+    }
+    data.results.forEach((c) => {
+      const li = document.createElement('li');
+      li.className = 'result-item';
+      const defendantName = `${c.defendant_last_name}, ${c.defendant_first_name}`;
+      const sub = c.citation_number
+        ? `${escapeHtml(defendantName)} — Citation ${escapeHtml(c.citation_number)} — ${fmtStatus(c.case_status)}`
+        : `${escapeHtml(defendantName)} — ${humanize(c.case_type)} — ${fmtStatus(c.case_status)}`;
+      li.innerHTML = `<div class="r-title">${escapeHtml(c.case_number)}</div><div class="r-sub">${sub}</div>`;
+      li.addEventListener('click', () => renderCaseDetail(c.id));
+      listEl.appendChild(li);
+    });
+    const start = data.total === 0 ? 0 : casesOffset + 1;
+    const end = Math.min(casesOffset + CASES_PAGE_SIZE, data.total);
+    pageInfo.textContent = `${start}-${end} of ${data.total}`;
+  } catch (err) {
+    listEl.innerHTML = `<li class="hint">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+function renderCaseCharges(container, charges, caseId) {
+  container.innerHTML = charges
+    .map(
+      (ch) => `
+    <div class="dyn-row charge-card" data-charge-id="${ch.id}">
+      <div class="r-title">${escapeHtml(ch.charge_code)} — ${escapeHtml(ch.charge_description)}</div>
+      <div class="r-sub">${humanize(ch.charge_category)} — Count ${ch.count_number}</div>
+      <label>Plea</label>
+      <select class="chg-plea">${optionsHtml(PLEA_TYPES)}</select>
+      <label>Disposition</label>
+      <select class="chg-disposition">${optionsHtml(CASE_DISPOSITION_STATUSES)}</select>
+      <label>Fine Amount ($)</label>
+      <input class="chg-fine" type="number" step="0.01" min="0" />
+      <label>Court Costs ($)</label>
+      <input class="chg-costs" type="number" step="0.01" min="0" />
+      <button type="button" class="btn btn-secondary chg-save">Save Charge</button>
+      <p class="chg-error error-text" hidden></p>
+      <p class="chg-success success-text" hidden></p>
+    </div>`
+    )
+    .join('');
+
+  charges.forEach((ch) => {
+    const card = container.querySelector(`[data-charge-id="${ch.id}"]`);
+    card.querySelector('.chg-plea').value = ch.plea;
+    card.querySelector('.chg-disposition').value = ch.disposition;
+    card.querySelector('.chg-fine').value = ch.fine_amount ?? '';
+    card.querySelector('.chg-costs').value = ch.court_costs ?? '';
+
+    card.querySelector('.chg-save').onclick = async () => {
+      const errorEl = card.querySelector('.chg-error');
+      const successEl = card.querySelector('.chg-success');
+      errorEl.hidden = true;
+      successEl.hidden = true;
+
+      const body = {
+        plea: card.querySelector('.chg-plea').value,
+        disposition: card.querySelector('.chg-disposition').value,
+      };
+      const fine = card.querySelector('.chg-fine').value;
+      const costs = card.querySelector('.chg-costs').value;
+      if (fine !== '') body.fine_amount = Number(fine);
+      if (costs !== '') body.court_costs = Number(costs);
+
+      try {
+        await apiFetch(`/api/cases/${caseId}/charges/${ch.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+        successEl.textContent = 'Saved.';
+        successEl.hidden = false;
+      } catch (err) {
+        errorEl.textContent = formErrorMessage(err);
+        errorEl.hidden = false;
+      }
+    };
+  });
+}
+
+async function renderCaseDetail(id) {
+  mount('tpl-case-detail');
+  mainContent.querySelector('.back-btn').addEventListener('click', () => navigate('cases'));
+  wirePrintButton(mainContent.querySelector('.print-btn'));
+
+  document.getElementById('cac-category').innerHTML = optionsHtml(CHARGE_CATEGORIES);
+
+  async function loadDetail() {
+    const courtCase = await apiFetch(`/api/cases/${id}`);
+
+    mainContent.querySelector('.cs-case-number').textContent = courtCase.case_number;
+    mainContent.querySelector('.cs-case-type').textContent = humanize(courtCase.case_type);
+    mainContent.querySelector('.cs-status').textContent = fmtStatus(courtCase.case_status);
+    mainContent.querySelector('.cs-defendant').textContent = `${courtCase.defendant_last_name}, ${courtCase.defendant_first_name}${
+      courtCase.defendant_dob ? ' (DOB ' + fmtDateOnly(courtCase.defendant_dob) + ')' : ''
+    }`;
+    mainContent.querySelector('.cs-citation').textContent = courtCase.citation_number || '—';
+    mainContent.querySelector('.cs-opened').textContent = fmtDateTime(courtCase.opened_at);
+    mainContent.querySelector('.cs-closed').textContent = courtCase.closed_at ? fmtDateTime(courtCase.closed_at) : '—';
+    mainContent.querySelector('.cs-filed-by').textContent = courtCase.filed_by_badge ? `Badge #${courtCase.filed_by_badge}` : '—';
+    mainContent.querySelector('.cs-intake-summary').textContent = courtCase.intake_summary || '';
+
+    document.getElementById('case-status-select').value = courtCase.case_status;
+
+    renderCaseCharges(mainContent.querySelector('.cs-charges'), courtCase.charges, id);
+
+    const notesEl = mainContent.querySelector('.cs-notes');
+    notesEl.innerHTML =
+      courtCase.notes.length === 0
+        ? '<li class="hint">None.</li>'
+        : courtCase.notes
+            .map(
+              (n) =>
+                `<li class="result-item"><div class="r-title">${fmtDateTime(n.created_at)}${
+                  n.author_badge ? ' — Badge #' + escapeHtml(String(n.author_badge)) : ''
+                }</div><div class="r-sub">${escapeHtml(n.note_text)}</div></li>`
+            )
+            .join('');
+
+    document.getElementById('case-status-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const errorEl = mainContent.querySelector('.case-status-error');
+      const successEl = mainContent.querySelector('.case-status-success');
+      errorEl.hidden = true;
+      successEl.hidden = true;
+      try {
+        await apiFetch(`/api/cases/${id}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({ case_status: document.getElementById('case-status-select').value }),
+        });
+        successEl.textContent = 'Status updated.';
+        successEl.hidden = false;
+        await loadDetail();
+      } catch (err) {
+        errorEl.textContent = formErrorMessage(err);
+        errorEl.hidden = false;
+      }
+    };
+
+    document.getElementById('case-add-charge-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const errorEl = mainContent.querySelector('.cac-error');
+      const successEl = mainContent.querySelector('.cac-success');
+      errorEl.hidden = true;
+      successEl.hidden = true;
+
+      const val = (elId) => document.getElementById(elId).value.trim();
+      const body = {
+        charge_category: document.getElementById('cac-category').value,
+        charge_code: val('cac-code'),
+        charge_description: val('cac-description'),
+      };
+      if (val('cac-fine') !== '') body.fine_amount = Number(val('cac-fine'));
+      if (val('cac-costs') !== '') body.court_costs = Number(val('cac-costs'));
+
+      try {
+        await apiFetch(`/api/cases/${id}/charges`, { method: 'POST', body: JSON.stringify(body) });
+        successEl.textContent = 'Charge added.';
+        successEl.hidden = false;
+        document.getElementById('case-add-charge-form').reset();
+        await loadDetail();
+      } catch (err) {
+        errorEl.textContent = formErrorMessage(err);
+        errorEl.hidden = false;
+      }
+    };
+
+    document.getElementById('case-add-note-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const errorEl = mainContent.querySelector('.can-error');
+      const successEl = mainContent.querySelector('.can-success');
+      errorEl.hidden = true;
+      successEl.hidden = true;
+      const noteText = document.getElementById('case-note-text').value.trim();
+      if (!noteText) {
+        errorEl.textContent = 'Enter note text first.';
+        errorEl.hidden = false;
+        return;
+      }
+      try {
+        await apiFetch(`/api/cases/${id}/notes`, { method: 'POST', body: JSON.stringify({ note_text: noteText }) });
+        successEl.textContent = 'Note added.';
+        successEl.hidden = false;
+        document.getElementById('case-note-text').value = '';
+        await loadDetail();
+      } catch (err) {
+        errorEl.textContent = formErrorMessage(err);
+        errorEl.hidden = false;
+      }
+    };
+
+    return courtCase;
+  }
+
+  try {
+    await loadDetail();
+  } catch (err) {
+    mainContent.querySelector('.cs-case-number').textContent = err.message;
+  }
 }
 
 // ------------------------------------------------------------------
