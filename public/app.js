@@ -1765,7 +1765,26 @@ async function renderIncidentDetail(id) {
     mainContent.querySelector('.i-location-type').textContent = humanize(inc.location_type);
     mainContent.querySelector('.i-status').textContent = fmtStatus(inc.status);
     mainContent.querySelector('.i-clearance').textContent = humanize(inc.exceptional_clearance);
-    mainContent.querySelector('.i-narrative').textContent = inc.narrative || '—';
+
+    // incident_narratives is append-only/versioned (db/migrations/001_init_
+    // schema.sql -- UPDATE/DELETE blocked at the DB level): GET /api/
+    // incidents/:id returns a `narratives` array, never a flat `narrative`
+    // field, so every version files here rather than just the first one.
+    // Newest first so the current text is what a reader sees without
+    // scrolling past the full history.
+    const narrativesEl = mainContent.querySelector('.i-narratives');
+    narrativesEl.innerHTML =
+      inc.narratives.length === 0
+        ? '<li class="hint">None on file.</li>'
+        : [...inc.narratives]
+            .reverse()
+            .map(
+              (n) =>
+                `<li class="result-item"><div class="r-title">Version ${n.version_number} — ${escapeHtml(
+                  n.author_name
+                )} — ${fmtDateTime(n.created_at)}</div><div class="r-sub">${escapeHtml(n.narrative_text)}</div></li>`
+            )
+            .join('');
 
     const offensesEl = mainContent.querySelector('.i-offenses');
     offensesEl.innerHTML =
@@ -1834,11 +1853,46 @@ async function renderIncidentDetail(id) {
       onSaved: () => renderIncidentDetail(id),
     });
 
+    const addNarrativeSection = mainContent.querySelector('#incident-add-narrative-form').closest('.edit-section');
+    const addNarrativeForm = document.getElementById('incident-add-narrative-form');
+
     const editToggle = document.getElementById('incident-edit-toggle');
     const editForm = document.getElementById('incident-edit-form');
     if (hasAnyRole('Patrol_Officer', 'Supervisor', 'System_Admin')) {
       editToggle.hidden = false;
       wireEditToggle(editToggle, editForm);
+
+      addNarrativeSection.hidden = false;
+      addNarrativeForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const errorEl = mainContent.querySelector('.ian-error');
+        const successEl = mainContent.querySelector('.ian-success');
+        errorEl.hidden = true;
+        successEl.hidden = true;
+
+        const text = document.getElementById('ian-text').value.trim();
+        if (!text) {
+          errorEl.textContent = 'Enter narrative text first.';
+          errorEl.hidden = false;
+          return;
+        }
+
+        try {
+          await apiFetch(`/api/incidents/${id}/narratives`, {
+            method: 'POST',
+            body: JSON.stringify({ narrative_text: text }),
+          });
+          successEl.textContent = 'Narrative update added.';
+          successEl.hidden = false;
+          // Same re-mount pattern the edit form below uses -- simplest way
+          // to reflect the new version in both the history list and (via
+          // print) the printed report.
+          setTimeout(() => renderIncidentDetail(id), 900);
+        } catch (err) {
+          errorEl.textContent = formErrorMessage(err);
+          errorEl.hidden = false;
+        }
+      };
 
       const locSelect = document.getElementById('ie-location-type');
       locSelect.innerHTML = optionsHtml(LOCATION_TYPES);
@@ -1894,6 +1948,7 @@ async function renderIncidentDetail(id) {
     } else {
       editToggle.hidden = true;
       editForm.hidden = true;
+      addNarrativeSection.hidden = true;
     }
   } catch (err) {
     mainContent.querySelector('.i-case-number').textContent = err.message;

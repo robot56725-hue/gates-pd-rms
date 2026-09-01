@@ -656,7 +656,18 @@
       <h3>Property</h3>
       <ul class="result-list i-property"></ul>
       <h3>Narrative</h3>
-      <p class="i-narrative"></p>
+      <ul class="result-list i-narratives"></ul>
+
+      <div class="edit-section no-print">
+        <h4>Add Narrative Update</h4>
+        <p class="hint">Narratives are a permanent record: each submission adds a new dated, versioned entry rather than replacing an earlier one, so nothing already on file can be edited or removed. Use this to add a supplemental report or correction.</p>
+        <form id="incident-add-narrative-form">
+          <textarea id="ian-text" rows="4" required placeholder="Narrative update..."></textarea>
+          <button type="submit" class="btn btn-secondary">Add Narrative Update</button>
+          <p class="ian-error error-text" hidden></p>
+          <p class="ian-success success-text" hidden></p>
+        </form>
+      </div>
 
       <div class="approval-section no-print">
         <h3>Approval</h3>
