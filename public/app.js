@@ -143,6 +143,7 @@ function showApp() {
   // Issue Citation tab) stays hidden unless that's one of the account's roles.
   const canOperateCases = hasAnyRole('Patrol_Officer', 'Supervisor', 'System_Admin');
   document.getElementById('nav-incidents').hidden = !canOperateCases;
+  document.getElementById('nav-mor').hidden = !canOperateCases;
   document.getElementById('nav-crashes').hidden = !canOperateCases;
   document.getElementById('nav-evidence').hidden = !canOperateCases;
 
@@ -210,6 +211,7 @@ function navigate(view) {
   else if (view === 'issue') renderIssueForm();
   else if (view === 'personnel') renderPersonnel();
   else if (view === 'incidents') renderIncidents();
+  else if (view === 'mor') renderMor();
   else if (view === 'crashes') renderCrashes();
   else if (view === 'evidence') renderEvidence();
   else if (view === 'cases') renderCases();
@@ -1313,6 +1315,21 @@ const EXCEPTIONAL_CLEARANCE_VALUES = [
 ];
 
 const INCIDENT_PERSON_ROLES = ['Victim', 'Offender', 'Witness', 'Reporting_Party'];
+
+// Mirrors db/migrations/012_add_matters_of_record.sql's enum types exactly,
+// same hand-kept-in-sync convention as every other list in this file.
+const MOR_CATEGORIES = [
+  'Property_Loss',
+  'Neighborhood_Disturbance',
+  'Civil_Dispute',
+  'Vandalism',
+  'Welfare_Check',
+  'Verbal_Warning',
+  'Medical_Call',
+  'Animal_Complaint',
+  'Other',
+];
+const MOR_PERSON_ROLES = ['Involved_Party', 'Witness'];
 const INJURY_TYPES = [
   'None',
   'Apparent_Broken_Bones',
@@ -1952,6 +1969,258 @@ async function renderIncidentDetail(id) {
     }
   } catch (err) {
     mainContent.querySelector('.i-case-number').textContent = err.message;
+  }
+}
+
+// ------------------------------------------------------------------
+// Matters of Record (MOR) -- non-arrest documentation: a welfare check, a
+// mediated dispute, a verbal warning, or any other response that never
+// involved a TIBRS-reportable offense or an arrest. Deliberately its own
+// tab/API rather than a stripped-down Incident (incidents requires at
+// least one TIBRS offense code -- db/migrations/012_add_matters_of_record.sql
+// explains why).
+// ------------------------------------------------------------------
+
+function addMorPersonRow() {
+  const container = document.getElementById('mor-person-rows');
+  makeRemovableRow(
+    container,
+    'mor-person-row',
+    `<label>Role</label>
+     <select class="mp-role" required><option value="">-- select --</option>${optionsHtml(MOR_PERSON_ROLES)}</select>
+     <label>First Name</label>
+     <input class="mp-first-name" />
+     <label>Last Name</label>
+     <input class="mp-last-name" />
+     <label>Phone (optional)</label>
+     <input class="mp-phone" />`
+  );
+}
+
+function renderMor() {
+  mount('tpl-mor');
+  const newBtn = document.getElementById('mor-new-btn');
+  const form = document.getElementById('mor-form');
+  newBtn.addEventListener('click', () => {
+    form.hidden = !form.hidden;
+  });
+
+  document.getElementById('mor-category').innerHTML = optionsHtml(MOR_CATEGORIES, '-- select --');
+  document.getElementById('mor-filter-category').innerHTML =
+    '<option value="">Any category</option>' + optionsHtml(MOR_CATEGORIES);
+  document.getElementById('mor-filter-category').addEventListener('change', loadMorList);
+
+  document.getElementById('mor-person-rows').innerHTML = '';
+  document.getElementById('mor-add-person').addEventListener('click', addMorPersonRow);
+
+  wireUseLocation('mor-use-location', 'mor-latitude', 'mor-longitude', 'mor-location-status');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('mor-form-error');
+    const successEl = document.getElementById('mor-form-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+
+    const val = (id) => document.getElementById(id).value.trim();
+
+    const persons = Array.from(document.querySelectorAll('#mor-person-rows .dyn-row')).map((row) => {
+      const q = (sel) => row.querySelector(sel).value.trim();
+      const person = { role: q('.mp-role') };
+      if (q('.mp-first-name')) person.first_name = q('.mp-first-name');
+      if (q('.mp-last-name')) person.last_name = q('.mp-last-name');
+      if (q('.mp-phone')) person.phone = q('.mp-phone');
+      return person;
+    });
+
+    const payload = {
+      report_number: val('mor-report-number'),
+      category: val('mor-category'),
+      occurrence_date: `${val('mor-occurrence-date')}T${val('mor-occurrence-time') || '00:00'}:00`,
+      location_address: val('mor-location-address'),
+      narrative: val('mor-narrative'),
+      persons,
+    };
+    const lat = val('mor-latitude');
+    const lng = val('mor-longitude');
+    if (lat !== '' && lng !== '') {
+      payload.latitude = Number(lat);
+      payload.longitude = Number(lng);
+    }
+
+    try {
+      const result = await apiFetch('/api/mor', { method: 'POST', body: JSON.stringify(payload) });
+      successEl.textContent = `Matter of record ${result.report_number} submitted (${result.person_count} person(s)).`;
+      successEl.hidden = false;
+      // Reset in place rather than calling renderMor() again -- a full
+      // remount would wipe this success message before it's readable, same
+      // reason renderIncidents()'s own submit handler does this.
+      form.reset();
+      document.getElementById('mor-person-rows').innerHTML = '';
+      loadMorList();
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  });
+
+  loadMorList();
+}
+
+async function loadMorList() {
+  const listEl = document.getElementById('mor-list');
+  const category = document.getElementById('mor-filter-category').value;
+  const params = new URLSearchParams({ limit: '25' });
+  if (category) params.set('category', category);
+
+  listEl.innerHTML = '<li class="hint">Loading...</li>';
+  try {
+    const data = await apiFetch(`/api/mor?${params.toString()}`);
+    listEl.innerHTML = '';
+    if (data.results.length === 0) {
+      listEl.innerHTML = '<li class="hint">No matters of record match.</li>';
+    }
+    data.results.forEach((m) => {
+      const li = document.createElement('li');
+      li.className = 'result-item';
+      li.innerHTML = `<div class="r-title">${escapeHtml(m.report_number)} — ${humanize(m.category)}</div>
+        <div class="r-sub">${fmtDate(m.occurrence_date)} — ${escapeHtml(m.location_address)}</div>`;
+      li.addEventListener('click', () => renderMorDetail(m.id));
+      listEl.appendChild(li);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<li class="error-text">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+async function renderMorDetail(id) {
+  mount('tpl-mor-detail');
+  mainContent.querySelector('.back-btn').addEventListener('click', () => navigate('mor'));
+  wirePrintButton(mainContent.querySelector('.print-btn'));
+
+  document.getElementById('morp-role').innerHTML = optionsHtml(MOR_PERSON_ROLES, '-- select --');
+
+  async function loadDetail() {
+    const mor = await apiFetch(`/api/mor/${id}`);
+
+    mainContent.querySelector('.mor-report-number').textContent = mor.report_number;
+    mainContent.querySelector('.mor-category').textContent = humanize(mor.category);
+    mainContent.querySelector('.mor-occurrence-date').textContent = fmtDateTime(mor.occurrence_date);
+    mainContent.querySelector('.mor-location').textContent = mor.location_address;
+    mainContent.querySelector('.mor-officer').textContent = `${mor.officer_name} (Badge #${mor.officer_badge})`;
+    mainContent.querySelector('.mor-narrative').textContent = mor.narrative;
+
+    const personsEl = mainContent.querySelector('.mor-persons');
+    personsEl.innerHTML =
+      mor.persons.length === 0
+        ? '<li class="hint">None.</li>'
+        : mor.persons
+            .map(
+              (p) =>
+                `<li class="result-item"><div class="r-title">${escapeHtml(p.last_name)}, ${escapeHtml(
+                  p.first_name
+                )} (${humanize(p.role)})</div><div class="r-sub">${p.phone ? escapeHtml(p.phone) : ''}</div></li>`
+            )
+            .join('');
+
+    wireApprovalSection({
+      record: mor,
+      id,
+      apiPath: 'mor',
+      badgeEl: mainContent.querySelector('.mor-approval-badge'),
+      detailEl: mainContent.querySelector('.mor-approval-detail'),
+      formEl: document.getElementById('mor-approval-form'),
+      notesEl: document.getElementById('mor-approval-notes'),
+      errorEl: mainContent.querySelector('.mor-approval-error'),
+      successEl: mainContent.querySelector('.mor-approval-success'),
+      onSaved: () => renderMorDetail(id),
+    });
+
+    const addPersonForm = document.getElementById('mor-add-person-form');
+    addPersonForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const errorEl = mainContent.querySelector('.morp-error');
+      const successEl = mainContent.querySelector('.morp-success');
+      errorEl.hidden = true;
+      successEl.hidden = true;
+
+      const val = (elId) => document.getElementById(elId).value.trim();
+      const role = val('morp-role');
+      const firstName = val('morp-first-name');
+      const lastName = val('morp-last-name');
+      if (!role || !firstName || !lastName) {
+        errorEl.textContent = 'Role, first name, and last name are all required.';
+        errorEl.hidden = false;
+        return;
+      }
+      const body = { role, first_name: firstName, last_name: lastName };
+      if (val('morp-phone')) body.phone = val('morp-phone');
+
+      try {
+        await apiFetch(`/api/mor/${id}/persons`, { method: 'POST', body: JSON.stringify(body) });
+        successEl.textContent = 'Person added.';
+        successEl.hidden = false;
+        addPersonForm.reset();
+        await loadDetail();
+      } catch (err) {
+        errorEl.textContent = formErrorMessage(err);
+        errorEl.hidden = false;
+      }
+    };
+
+    const editToggle = document.getElementById('mor-edit-toggle');
+    const editForm = document.getElementById('mor-edit-form');
+    if (hasAnyRole('Patrol_Officer', 'Supervisor', 'System_Admin')) {
+      editToggle.hidden = false;
+      wireEditToggle(editToggle, editForm);
+
+      document.getElementById('me-category').innerHTML = optionsHtml(MOR_CATEGORIES);
+      document.getElementById('me-report-number').value = mor.report_number;
+      document.getElementById('me-category').value = mor.category;
+      if (mor.occurrence_date) {
+        const d = new Date(mor.occurrence_date);
+        if (!Number.isNaN(d.getTime())) document.getElementById('me-occurrence-date').value = d.toISOString().slice(0, 10);
+      }
+      document.getElementById('me-location-address').value = mor.location_address || '';
+      document.getElementById('me-narrative').value = mor.narrative || '';
+
+      editForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const errorEl = mainContent.querySelector('.me-error');
+        const successEl = mainContent.querySelector('.me-success');
+        errorEl.hidden = true;
+        successEl.hidden = true;
+
+        const val = (elId) => document.getElementById(elId).value.trim();
+        const body = {};
+        if (val('me-report-number')) body.report_number = val('me-report-number');
+        if (val('me-category')) body.category = val('me-category');
+        if (val('me-occurrence-date')) body.occurrence_date = val('me-occurrence-date');
+        if (val('me-location-address')) body.location_address = val('me-location-address');
+        if (val('me-narrative')) body.narrative = val('me-narrative');
+
+        try {
+          await apiFetch(`/api/mor/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+          successEl.textContent = 'Matter of record updated.';
+          successEl.hidden = false;
+          // Same re-mount-after-a-beat pattern renderIncidentDetail's own
+          // edit form uses.
+          setTimeout(() => renderMorDetail(id), 900);
+        } catch (err) {
+          errorEl.textContent = formErrorMessage(err);
+          errorEl.hidden = false;
+        }
+      };
+    } else {
+      editToggle.hidden = true;
+      editForm.hidden = true;
+    }
+  }
+
+  try {
+    await loadDetail();
+  } catch (err) {
+    mainContent.querySelector('.mor-report-number').textContent = err.message;
   }
 }
 
