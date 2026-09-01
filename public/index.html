@@ -54,6 +54,7 @@
       <button class="nav-btn" data-view="crashes" id="nav-crashes" hidden>Crashes</button>
       <button class="nav-btn" data-view="evidence" id="nav-evidence" hidden>Evidence</button>
       <button class="nav-btn" data-view="cases" id="nav-cases" hidden>Cases</button>
+      <button class="nav-btn" data-view="court-admin" id="nav-court-admin" hidden>Court</button>
       <button class="nav-btn" data-view="personnel" id="nav-personnel" hidden>Personnel</button>
     </nav>
   </div>
@@ -1133,6 +1134,250 @@
           <p class="can-error error-text" hidden></p>
           <p class="can-success success-text" hidden></p>
         </form>
+      </div>
+    </section>
+  </template>
+
+  <template id="tpl-court-admin">
+    <section class="panel">
+      <h2>Court</h2>
+      <div class="scope-toggle">
+        <button class="scope-btn active" data-court-scope="dashboard">Dashboard</button>
+        <button class="scope-btn" data-court-scope="docket">Docket</button>
+        <button class="scope-btn" data-court-scope="judges">Judges</button>
+        <button class="scope-btn" data-court-scope="payments">Payments</button>
+        <button class="scope-btn" data-court-scope="reminders">Reminders</button>
+      </div>
+
+      <!-- Dashboard -->
+      <div class="court-scope-panel" data-court-panel="dashboard">
+        <h3>Upcoming Appearances <span class="hint">(next 14 days)</span></h3>
+        <ul id="court-dashboard-list" class="result-list"></ul>
+      </div>
+
+      <!-- Docket -->
+      <div class="court-scope-panel" data-court-panel="docket" hidden>
+        <button id="docket-new-btn" class="btn btn-primary">+ New Docket</button>
+        <form id="docket-form" hidden novalidate>
+          <label for="dk-date">Docket Date</label>
+          <input id="dk-date" type="date" required />
+          <label for="dk-time">Docket Time (optional)</label>
+          <input id="dk-time" type="time" />
+          <label for="dk-judge">Judge (optional)</label>
+          <select id="dk-judge"><option value="">-- unassigned --</option></select>
+          <label for="dk-type">Docket Type</label>
+          <select id="dk-type">
+            <option value="Traffic">Traffic</option>
+            <option value="Ordinance">Ordinance</option>
+            <option value="General_Sessions">General Sessions</option>
+            <option value="Other">Other</option>
+          </select>
+          <label for="dk-location">Location (optional)</label>
+          <input id="dk-location" />
+          <label for="dk-notes">Notes (optional)</label>
+          <textarea id="dk-notes" rows="2"></textarea>
+          <button type="submit" class="btn btn-primary btn-block">Schedule Docket</button>
+          <p id="docket-form-error" class="error-text" hidden></p>
+          <p id="docket-form-success" class="success-text" hidden></p>
+        </form>
+
+        <div class="filter-row">
+          <label class="hint">From <input id="docket-filter-date-from" type="date" /></label>
+          <label class="hint">To <input id="docket-filter-date-to" type="date" /></label>
+          <select id="docket-filter-status">
+            <option value="">Any status</option>
+            <option value="Scheduled">Scheduled</option>
+            <option value="In_Session">In Session</option>
+            <option value="Completed">Completed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+        <ul id="dockets-list" class="result-list"></ul>
+
+        <div id="docket-detail" hidden>
+          <div class="detail-toolbar">
+            <button id="docket-detail-back" class="btn btn-link">&larr; Back to dockets</button>
+          </div>
+          <dl class="detail-grid">
+            <dt>Date</dt><dd class="dd-date"></dd>
+            <dt>Time</dt><dd class="dd-time"></dd>
+            <dt>Judge</dt><dd class="dd-judge"></dd>
+            <dt>Type</dt><dd class="dd-type"></dd>
+            <dt>Location</dt><dd class="dd-location"></dd>
+          </dl>
+          <form id="docket-status-form">
+            <label for="docket-status-select">Status</label>
+            <select id="docket-status-select">
+              <option value="Scheduled">Scheduled</option>
+              <option value="In_Session">In Session</option>
+              <option value="Completed">Completed</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
+            <button type="submit" class="btn btn-secondary">Update Status</button>
+            <p class="dd-status-error error-text" hidden></p>
+            <p class="dd-status-success success-text" hidden></p>
+          </form>
+
+          <h4>Cases on this Docket</h4>
+          <ul class="dd-entries result-list"></ul>
+
+          <h4>Add a Case to this Docket</h4>
+          <div class="search-form">
+            <input id="dd-case-search" placeholder="Case # or defendant name" />
+            <button type="button" id="dd-case-find" class="btn btn-secondary">Find</button>
+          </div>
+          <p id="dd-case-status" class="hint"></p>
+          <ul id="dd-case-results" class="result-list"></ul>
+          <button type="button" id="dd-add-entry-btn" class="btn btn-primary" disabled>Add Selected Case</button>
+          <p class="dd-entry-error error-text" hidden></p>
+          <p class="dd-entry-success success-text" hidden></p>
+        </div>
+      </div>
+
+      <!-- Judges -->
+      <div class="court-scope-panel" data-court-panel="judges" hidden>
+        <button id="judge-new-btn" class="btn btn-primary">+ New Judge</button>
+        <form id="judge-form" hidden novalidate>
+          <label for="jg-name">Full Name</label>
+          <input id="jg-name" required />
+          <button type="submit" class="btn btn-primary btn-block">Add Judge</button>
+          <p id="judge-form-error" class="error-text" hidden></p>
+          <p id="judge-form-success" class="success-text" hidden></p>
+        </form>
+        <ul id="judges-list" class="result-list"></ul>
+
+        <div id="judge-detail" hidden>
+          <div class="detail-toolbar">
+            <button id="judge-detail-back" class="btn btn-link">&larr; Back to judges</button>
+          </div>
+          <h3 class="jd-name"></h3>
+          <form id="judge-active-form">
+            <label class="checkbox-label"><input type="checkbox" id="jd-active" /> Active</label>
+            <button type="submit" class="btn btn-secondary">Save</button>
+            <p class="jd-active-error error-text" hidden></p>
+            <p class="jd-active-success success-text" hidden></p>
+          </form>
+
+          <h4>Unavailability</h4>
+          <ul class="jd-unavailability result-list"></ul>
+          <form id="jd-unavail-form">
+            <label for="jd-un-start">Start Date</label>
+            <input id="jd-un-start" type="date" required />
+            <label for="jd-un-end">End Date</label>
+            <input id="jd-un-end" type="date" required />
+            <label for="jd-un-reason">Reason (optional)</label>
+            <input id="jd-un-reason" />
+            <button type="submit" class="btn btn-secondary">Add Unavailability</button>
+            <p class="jd-un-error error-text" hidden></p>
+            <p class="jd-un-success success-text" hidden></p>
+          </form>
+        </div>
+      </div>
+
+      <!-- Payments -->
+      <div class="court-scope-panel" data-court-panel="payments" hidden>
+        <button id="payment-new-btn" class="btn btn-primary">+ Record Payment</button>
+        <button id="fund-report-btn" class="btn btn-secondary">Fund Distribution Report</button>
+
+        <form id="payment-form" hidden novalidate>
+          <label for="pm-case-search">Case</label>
+          <div class="search-form">
+            <input id="pm-case-search" placeholder="Case # or defendant name" />
+            <button type="button" id="pm-case-find" class="btn btn-secondary">Find</button>
+          </div>
+          <p id="pm-case-status" class="hint"></p>
+          <ul id="pm-case-results" class="result-list"></ul>
+          <label for="pm-amount">Amount ($)</label>
+          <input id="pm-amount" type="number" step="0.01" min="0.01" required />
+          <label for="pm-method">Payment Method</label>
+          <select id="pm-method">
+            <option value="Cash">Cash</option>
+            <option value="Check">Check</option>
+            <option value="Money_Order">Money Order</option>
+            <option value="Card_In_Person">Card In Person</option>
+            <option value="Card_Online">Card Online</option>
+            <option value="Other">Other</option>
+          </select>
+          <label for="pm-type">Payment Type</label>
+          <select id="pm-type">
+            <option value="Fine">Fine</option>
+            <option value="Court_Cost">Court Cost</option>
+            <option value="Bond">Bond</option>
+            <option value="Other_Fee">Other Fee</option>
+          </select>
+          <label for="pm-fund">Fund Category (optional)</label>
+          <select id="pm-fund"><option value="">-- none --</option></select>
+          <label for="pm-notes">Notes (optional)</label>
+          <textarea id="pm-notes" rows="2"></textarea>
+          <button type="submit" class="btn btn-primary btn-block">Record Payment</button>
+          <p id="payment-form-error" class="error-text" hidden></p>
+          <p id="payment-form-success" class="success-text" hidden></p>
+        </form>
+
+        <div id="fund-report-panel" hidden>
+          <div class="filter-row">
+            <label class="hint">From <input id="fund-report-from" type="date" /></label>
+            <label class="hint">To <input id="fund-report-to" type="date" /></label>
+            <button id="fund-report-run" class="btn btn-secondary">Run</button>
+          </div>
+          <ul id="fund-report-results" class="result-list"></ul>
+          <p id="fund-report-total" class="hint"></p>
+        </div>
+
+        <div class="filter-row">
+          <select id="payment-filter-type">
+            <option value="">Any type</option>
+            <option value="Fine">Fine</option>
+            <option value="Court_Cost">Court Cost</option>
+            <option value="Bond">Bond</option>
+            <option value="Other_Fee">Other Fee</option>
+          </select>
+        </div>
+        <ul id="payments-list" class="result-list"></ul>
+      </div>
+
+      <!-- Reminders -->
+      <div class="court-scope-panel" data-court-panel="reminders" hidden>
+        <button id="reminder-new-btn" class="btn btn-primary">+ Queue Reminder</button>
+        <form id="reminder-form" hidden novalidate>
+          <label for="rm-case-search">Case</label>
+          <div class="search-form">
+            <input id="rm-case-search" placeholder="Case # or defendant name" />
+            <button type="button" id="rm-case-find" class="btn btn-secondary">Find</button>
+          </div>
+          <p id="rm-case-status" class="hint"></p>
+          <ul id="rm-case-results" class="result-list"></ul>
+          <label for="rm-type">Reminder Type</label>
+          <select id="rm-type">
+            <option value="Court_Date">Court Date</option>
+            <option value="FTA_Warning">FTA Warning</option>
+          </select>
+          <label for="rm-channel">Channel (optional)</label>
+          <select id="rm-channel">
+            <option value="">-- none --</option>
+            <option value="Email">Email</option>
+            <option value="SMS">SMS</option>
+          </select>
+          <label for="rm-scheduled">Scheduled Send</label>
+          <input id="rm-scheduled" type="datetime-local" required />
+          <label for="rm-notes">Notes (optional)</label>
+          <textarea id="rm-notes" rows="2"></textarea>
+          <button type="submit" class="btn btn-primary btn-block">Queue Reminder</button>
+          <p id="reminder-form-error" class="error-text" hidden></p>
+          <p id="reminder-form-success" class="success-text" hidden></p>
+        </form>
+
+        <div class="filter-row">
+          <select id="reminder-filter-status">
+            <option value="">Any status</option>
+            <option value="Not_Configured">Not Configured</option>
+            <option value="Pending">Pending</option>
+            <option value="Sent">Sent</option>
+            <option value="Cancelled">Cancelled</option>
+            <option value="Failed">Failed</option>
+          </select>
+        </div>
+        <ul id="reminders-list" class="result-list"></ul>
       </div>
     </section>
   </template>

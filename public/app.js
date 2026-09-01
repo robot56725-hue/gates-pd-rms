@@ -154,6 +154,13 @@ function showApp() {
   // Evidence above.
   document.getElementById('nav-cases').hidden = !hasAnyRole('Court_Clerk', 'Supervisor', 'System_Admin');
 
+  // Court admin tab (docket/judges/payments/reminders) -- same role gate as
+  // Cases above. Payment recording is further restricted to Court_Clerk +
+  // System_Admin only within the tab itself (court_payments RLS -- see the
+  // note in payments.routes.js), not at the tab-visibility level, since
+  // Supervisor can still view dockets/judges/reminders here.
+  document.getElementById('nav-court-admin').hidden = !hasAnyRole('Court_Clerk', 'Supervisor', 'System_Admin');
+
   navigate('search');
 }
 
@@ -206,6 +213,7 @@ function navigate(view) {
   else if (view === 'crashes') renderCrashes();
   else if (view === 'evidence') renderEvidence();
   else if (view === 'cases') renderCases();
+  else if (view === 'court-admin') renderCourtAdmin();
 }
 
 function mount(templateId) {
@@ -2880,6 +2888,735 @@ async function renderCaseDetail(id) {
     await loadDetail();
   } catch (err) {
     mainContent.querySelector('.cs-case-number').textContent = err.message;
+  }
+}
+
+// ------------------------------------------------------------------
+// Court Admin (Dashboard / Docket / Judges / Payments / Reminders --
+// db/migrations/011_..._court_case_management.sql)
+// ------------------------------------------------------------------
+
+let courtScope = 'dashboard';
+let selectedDocketId = null;
+let selectedJudgeId = null;
+let pmSelectedCase = null; // { id, case_number } -- payment-form's linked case
+let rmSelectedCase = null; // reminder-form's linked case
+let ddSelectedCase = null; // docket-detail's "add this case to the docket" selection
+
+/**
+ * Reusable find-a-case-by-number-or-defendant-name widget -- same
+ * find-and-select pattern as the citation linker in renderCases() and the
+ * Evidence tab's case linker (both apiFetch a q= search, render results as
+ * clickable .result-item rows, and hand the chosen row to a callback).
+ * Shared here across the docket-entry, payment, and reminder forms so that
+ * pattern isn't triplicated.
+ */
+function wireCaseLookup(searchInputId, findBtnId, statusId, resultsId, onSelect) {
+  const findBtn = document.getElementById(findBtnId);
+  const statusEl = document.getElementById(statusId);
+  const resultsEl = document.getElementById(resultsId);
+  findBtn.onclick = async () => {
+    const term = document.getElementById(searchInputId).value.trim();
+    if (!term) {
+      statusEl.textContent = 'Enter a case number or defendant name first.';
+      return;
+    }
+    statusEl.textContent = 'Searching...';
+    resultsEl.innerHTML = '';
+    try {
+      const data = await apiFetch(`/api/cases?q=${encodeURIComponent(term)}&limit=5`);
+      if (data.results.length === 0) {
+        statusEl.textContent = 'No matching case found.';
+        return;
+      }
+      statusEl.textContent = `${data.results.length} match(es) — select one:`;
+      data.results.forEach((c) => {
+        const li = document.createElement('li');
+        li.className = 'result-item';
+        li.innerHTML = `<div class="r-title">${escapeHtml(c.case_number)}</div><div class="r-sub">${escapeHtml(
+          c.defendant_last_name
+        )}, ${escapeHtml(c.defendant_first_name)}</div>`;
+        li.addEventListener('click', () => {
+          onSelect(c);
+          statusEl.textContent = `Selected case ${c.case_number}.`;
+          resultsEl.innerHTML = '';
+        });
+        resultsEl.appendChild(li);
+      });
+    } catch (err) {
+      statusEl.textContent = err.message;
+    }
+  };
+}
+
+function renderCourtAdmin() {
+  mount('tpl-court-admin');
+  courtScope = 'dashboard';
+
+  const scopeButtons = mainContent.querySelectorAll('.scope-btn');
+  const panels = mainContent.querySelectorAll('.court-scope-panel');
+  scopeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      courtScope = btn.dataset.courtScope;
+      scopeButtons.forEach((b) => b.classList.toggle('active', b === btn));
+      panels.forEach((p) => {
+        p.hidden = p.dataset.courtPanel !== courtScope;
+      });
+      loadCourtScope(courtScope);
+    });
+  });
+
+  // Payment recording is Court_Clerk/System_Admin ONLY -- court_payments
+  // FORCE ROW LEVEL SECURITY with payments_write_clerk_admin_only permits
+  // INSERT for only those two roles (migration 011), NOT Supervisor. Hiding
+  // the button here for a Supervisor viewer avoids a confusing 403 from a
+  // button that looked like it should work.
+  document.getElementById('payment-new-btn').hidden = !hasAnyRole('Court_Clerk', 'System_Admin');
+
+  wireDocketPanel();
+  wireJudgesPanel();
+  wirePaymentsPanel();
+  wireRemindersPanel();
+
+  loadCourtScope('dashboard');
+}
+
+function loadCourtScope(scope) {
+  if (scope === 'dashboard') loadCourtDashboard();
+  else if (scope === 'docket') loadDocketsList();
+  else if (scope === 'judges') loadJudgesList();
+  else if (scope === 'payments') loadPaymentsList();
+  else if (scope === 'reminders') loadRemindersList();
+}
+
+async function loadCourtDashboard() {
+  const listEl = document.getElementById('court-dashboard-list');
+  listEl.innerHTML = '<li class="hint">Loading...</li>';
+  try {
+    const data = await apiFetch('/api/dashboard/upcoming-appearances?days_ahead=14');
+    listEl.innerHTML = '';
+    if (data.results.length === 0) {
+      listEl.innerHTML = '<li class="hint">Nothing scheduled in the next 14 days.</li>';
+    }
+    data.results.forEach((r) => {
+      const li = document.createElement('li');
+      li.className = 'result-item';
+      li.innerHTML = `<div class="r-title">${fmtDateOnly(r.docket_date)}${
+        r.docket_time ? ' ' + fmtTimeOnly(r.docket_time) : ''
+      } — ${escapeHtml(r.case_number)}</div><div class="r-sub">${escapeHtml(r.defendant_last_name)}, ${escapeHtml(
+        r.defendant_first_name
+      )} — ${r.judge_name ? escapeHtml(r.judge_name) : 'No judge assigned'}${
+        r.location ? ' — ' + escapeHtml(r.location) : ''
+      }</div>`;
+      li.addEventListener('click', () => renderCaseDetail(r.case_id));
+      listEl.appendChild(li);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<li class="hint">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+// ---------------- Docket ----------------
+
+function wireDocketPanel() {
+  const newBtn = document.getElementById('docket-new-btn');
+  const form = document.getElementById('docket-form');
+  newBtn.onclick = () => {
+    form.hidden = !form.hidden;
+  };
+
+  document.getElementById('docket-filter-date-from').onchange = loadDocketsList;
+  document.getElementById('docket-filter-date-to').onchange = loadDocketsList;
+  document.getElementById('docket-filter-status').onchange = loadDocketsList;
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('docket-form-error');
+    const successEl = document.getElementById('docket-form-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+
+    const val = (id) => document.getElementById(id).value.trim();
+    const body = { docket_date: val('dk-date'), docket_type: document.getElementById('dk-type').value };
+    if (val('dk-time')) body.docket_time = val('dk-time');
+    if (val('dk-judge')) body.judge_id = val('dk-judge');
+    if (val('dk-location')) body.location = val('dk-location');
+    if (val('dk-notes')) body.notes = val('dk-notes');
+
+    try {
+      const result = await apiFetch('/api/dockets', { method: 'POST', body: JSON.stringify(body) });
+      successEl.textContent = `Docket scheduled for ${fmtDateOnly(result.docket_date)}.`;
+      successEl.hidden = false;
+      form.reset();
+      loadDocketsList();
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
+
+  document.getElementById('docket-detail-back').onclick = () => {
+    document.getElementById('docket-detail').hidden = true;
+    document.getElementById('dockets-list').hidden = false;
+    mainContent.querySelector('[data-court-panel="docket"] .filter-row').hidden = false;
+    document.getElementById('docket-new-btn').hidden = false;
+    selectedDocketId = null;
+  };
+
+  document.getElementById('docket-status-form').onsubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedDocketId) return;
+    const errorEl = document.querySelector('.dd-status-error');
+    const successEl = document.querySelector('.dd-status-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+    try {
+      await apiFetch(`/api/dockets/${selectedDocketId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ docket_status: document.getElementById('docket-status-select').value }),
+      });
+      successEl.textContent = 'Status updated.';
+      successEl.hidden = false;
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
+
+  wireCaseLookup('dd-case-search', 'dd-case-find', 'dd-case-status', 'dd-case-results', (c) => {
+    ddSelectedCase = c;
+    document.getElementById('dd-add-entry-btn').disabled = false;
+  });
+
+  document.getElementById('dd-add-entry-btn').onclick = async () => {
+    if (!selectedDocketId || !ddSelectedCase) return;
+    const errorEl = document.querySelector('.dd-entry-error');
+    const successEl = document.querySelector('.dd-entry-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+    try {
+      await apiFetch(`/api/dockets/${selectedDocketId}/entries`, {
+        method: 'POST',
+        body: JSON.stringify({ case_id: ddSelectedCase.id }),
+      });
+      successEl.textContent = `Added case ${ddSelectedCase.case_number} to this docket.`;
+      successEl.hidden = false;
+      ddSelectedCase = null;
+      document.getElementById('dd-add-entry-btn').disabled = true;
+      document.getElementById('dd-case-search').value = '';
+      await renderDocketDetail(selectedDocketId);
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
+}
+
+async function populateJudgeSelect(selectEl, includeBlank) {
+  try {
+    const data = await apiFetch('/api/judges?is_active=true&limit=100');
+    selectEl.innerHTML =
+      (includeBlank ? '<option value="">-- unassigned --</option>' : '') +
+      data.results.map((j) => `<option value="${j.id}">${escapeHtml(j.full_name)}</option>`).join('');
+  } catch {
+    /* leave select as-is if this fails -- not worth blocking the rest of the panel over */
+  }
+}
+
+async function loadDocketsList() {
+  await populateJudgeSelect(document.getElementById('dk-judge'), true);
+
+  const listEl = document.getElementById('dockets-list');
+  const from = document.getElementById('docket-filter-date-from').value;
+  const to = document.getElementById('docket-filter-date-to').value;
+  const status = document.getElementById('docket-filter-status').value;
+  const params = new URLSearchParams({ limit: '50' });
+  if (from) params.set('docket_date_from', from);
+  if (to) params.set('docket_date_to', to);
+  if (status) params.set('docket_status', status);
+
+  listEl.innerHTML = '<li class="hint">Loading...</li>';
+  try {
+    const data = await apiFetch(`/api/dockets?${params.toString()}`);
+    listEl.innerHTML = '';
+    if (data.results.length === 0) listEl.innerHTML = '<li class="hint">No dockets match.</li>';
+    data.results.forEach((d) => {
+      const li = document.createElement('li');
+      li.className = 'result-item';
+      li.innerHTML = `<div class="r-title">${fmtDateOnly(d.docket_date)}${
+        d.docket_time ? ' ' + fmtTimeOnly(d.docket_time) : ''
+      } — ${humanize(d.docket_type)}</div><div class="r-sub">${
+        d.judge_name ? escapeHtml(d.judge_name) : 'No judge assigned'
+      } — ${fmtStatus(d.docket_status)}</div>`;
+      li.addEventListener('click', () => renderDocketDetail(d.id));
+      listEl.appendChild(li);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<li class="hint">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+function promptEntryStatusUpdate(docketId, entryId, li) {
+  if (li.querySelector('select')) return; // already expanded -- don't stack a second editor
+  const currentText = li.querySelector('.r-sub').textContent;
+  const editDiv = document.createElement('div');
+  editDiv.className = 'entry-edit';
+  editDiv.innerHTML = `<select class="entry-status-select">${optionsHtml([
+    'Scheduled',
+    'Appeared',
+    'FTA',
+    'Continued',
+    'Removed',
+  ])}</select><button type="button" class="btn btn-secondary entry-save-btn">Save</button><p class="entry-error error-text" hidden></p>`;
+  li.appendChild(editDiv);
+  const select = editDiv.querySelector('.entry-status-select');
+  if ([...select.options].some((o) => o.value === currentText)) select.value = currentText;
+
+  editDiv.querySelector('.entry-save-btn').onclick = async (ev) => {
+    ev.stopPropagation();
+    const errorEl = editDiv.querySelector('.entry-error');
+    errorEl.hidden = true;
+    try {
+      await apiFetch(`/api/dockets/${docketId}/entries/${entryId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ appearance_status: select.value }),
+      });
+      await renderDocketDetail(docketId);
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
+}
+
+async function renderDocketDetail(id) {
+  selectedDocketId = id;
+  document.getElementById('dockets-list').hidden = true;
+  document.getElementById('docket-form').hidden = true;
+  document.getElementById('docket-new-btn').hidden = true;
+  mainContent.querySelector('[data-court-panel="docket"] .filter-row').hidden = true;
+  const detailEl = document.getElementById('docket-detail');
+  detailEl.hidden = false;
+  document.getElementById('dd-case-results').innerHTML = '';
+  document.getElementById('dd-case-status').textContent = '';
+  document.getElementById('dd-add-entry-btn').disabled = true;
+  ddSelectedCase = null;
+
+  try {
+    const docket = await apiFetch(`/api/dockets/${id}`);
+    detailEl.querySelector('.dd-date').textContent = fmtDateOnly(docket.docket_date);
+    detailEl.querySelector('.dd-time').textContent = docket.docket_time ? fmtTimeOnly(docket.docket_time) : '—';
+    detailEl.querySelector('.dd-judge').textContent = docket.judge_name || '—';
+    detailEl.querySelector('.dd-type').textContent = humanize(docket.docket_type);
+    detailEl.querySelector('.dd-location').textContent = docket.location || '—';
+    document.getElementById('docket-status-select').value = docket.docket_status;
+
+    const entriesEl = detailEl.querySelector('.dd-entries');
+    entriesEl.innerHTML =
+      docket.entries.length === 0
+        ? '<li class="hint">No cases on this docket yet.</li>'
+        : docket.entries
+            .map(
+              (e) =>
+                `<li class="result-item" data-entry-id="${e.id}"><div class="r-title">${escapeHtml(
+                  e.case_number
+                )} — ${escapeHtml(e.defendant_last_name)}, ${escapeHtml(e.defendant_first_name)}</div><div class="r-sub">${fmtStatus(
+                  e.appearance_status
+                )}</div></li>`
+            )
+            .join('');
+    entriesEl.querySelectorAll('li[data-entry-id]').forEach((li) => {
+      li.addEventListener('click', () => promptEntryStatusUpdate(id, li.dataset.entryId, li));
+    });
+  } catch (err) {
+    detailEl.querySelector('.dd-date').textContent = err.message;
+  }
+}
+
+// ---------------- Judges ----------------
+
+function wireJudgesPanel() {
+  const newBtn = document.getElementById('judge-new-btn');
+  const form = document.getElementById('judge-form');
+  newBtn.onclick = () => {
+    form.hidden = !form.hidden;
+  };
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('judge-form-error');
+    const successEl = document.getElementById('judge-form-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+    try {
+      const result = await apiFetch('/api/judges', {
+        method: 'POST',
+        body: JSON.stringify({ full_name: document.getElementById('jg-name').value.trim() }),
+      });
+      successEl.textContent = `Judge ${result.full_name} added.`;
+      successEl.hidden = false;
+      form.reset();
+      loadJudgesList();
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
+
+  document.getElementById('judge-detail-back').onclick = () => {
+    document.getElementById('judge-detail').hidden = true;
+    document.getElementById('judges-list').hidden = false;
+    document.getElementById('judge-form').hidden = true;
+    document.getElementById('judge-new-btn').hidden = false;
+    selectedJudgeId = null;
+  };
+
+  document.getElementById('judge-active-form').onsubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedJudgeId) return;
+    const errorEl = document.querySelector('.jd-active-error');
+    const successEl = document.querySelector('.jd-active-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+    try {
+      await apiFetch(`/api/judges/${selectedJudgeId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: document.getElementById('jd-active').checked }),
+      });
+      successEl.textContent = 'Saved.';
+      successEl.hidden = false;
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
+
+  document.getElementById('jd-unavail-form').onsubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedJudgeId) return;
+    const errorEl = document.querySelector('.jd-un-error');
+    const successEl = document.querySelector('.jd-un-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+    const val = (id) => document.getElementById(id).value.trim();
+    try {
+      await apiFetch(`/api/judges/${selectedJudgeId}/unavailability`, {
+        method: 'POST',
+        body: JSON.stringify({
+          start_date: val('jd-un-start'),
+          end_date: val('jd-un-end'),
+          reason: val('jd-un-reason') || undefined,
+        }),
+      });
+      successEl.textContent = 'Added.';
+      successEl.hidden = false;
+      document.getElementById('jd-unavail-form').reset();
+      await renderJudgeDetail(selectedJudgeId);
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
+}
+
+async function loadJudgesList() {
+  const listEl = document.getElementById('judges-list');
+  listEl.innerHTML = '<li class="hint">Loading...</li>';
+  try {
+    const data = await apiFetch('/api/judges?limit=100');
+    listEl.innerHTML = '';
+    if (data.results.length === 0) listEl.innerHTML = '<li class="hint">No judges yet.</li>';
+    data.results.forEach((j) => {
+      const li = document.createElement('li');
+      li.className = 'result-item';
+      li.innerHTML = `<div class="r-title">${escapeHtml(j.full_name)}</div><div class="r-sub">${
+        j.is_active ? 'Active' : 'Inactive'
+      }</div>`;
+      li.addEventListener('click', () => renderJudgeDetail(j.id));
+      listEl.appendChild(li);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<li class="hint">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+async function renderJudgeDetail(id) {
+  selectedJudgeId = id;
+  document.getElementById('judges-list').hidden = true;
+  document.getElementById('judge-form').hidden = true;
+  document.getElementById('judge-new-btn').hidden = true;
+  const detailEl = document.getElementById('judge-detail');
+  detailEl.hidden = false;
+
+  try {
+    const judge = await apiFetch(`/api/judges/${id}`);
+    detailEl.querySelector('.jd-name').textContent = judge.full_name;
+    document.getElementById('jd-active').checked = judge.is_active;
+
+    const unavailEl = detailEl.querySelector('.jd-unavailability');
+    unavailEl.innerHTML =
+      judge.unavailability.length === 0
+        ? '<li class="hint">None on file.</li>'
+        : judge.unavailability
+            .map(
+              (u) =>
+                `<li class="result-item" data-unavail-id="${u.id}"><div class="r-title">${fmtDateOnly(
+                  u.start_date
+                )} to ${fmtDateOnly(u.end_date)}</div><div class="r-sub">${escapeHtml(u.reason || '')}</div></li>`
+            )
+            .join('');
+    unavailEl.querySelectorAll('li[data-unavail-id]').forEach((li) => {
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'btn btn-link';
+      removeBtn.textContent = 'Remove';
+      removeBtn.onclick = async (ev) => {
+        ev.stopPropagation();
+        const errorEl = detailEl.querySelector('.jd-un-error');
+        errorEl.hidden = true;
+        try {
+          await apiFetch(`/api/judges/${id}/unavailability/${li.dataset.unavailId}`, { method: 'DELETE' });
+          await renderJudgeDetail(id);
+        } catch (err) {
+          errorEl.textContent = formErrorMessage(err);
+          errorEl.hidden = false;
+        }
+      };
+      li.appendChild(removeBtn);
+    });
+  } catch (err) {
+    detailEl.querySelector('.jd-name').textContent = err.message;
+  }
+}
+
+// ---------------- Payments ----------------
+
+function wirePaymentsPanel() {
+  const newBtn = document.getElementById('payment-new-btn');
+  const form = document.getElementById('payment-form');
+  newBtn.onclick = () => {
+    form.hidden = !form.hidden;
+  };
+
+  wireCaseLookup('pm-case-search', 'pm-case-find', 'pm-case-status', 'pm-case-results', (c) => {
+    pmSelectedCase = c;
+  });
+
+  populateFundCategorySelect();
+
+  document.getElementById('payment-filter-type').onchange = loadPaymentsList;
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('payment-form-error');
+    const successEl = document.getElementById('payment-form-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+
+    if (!pmSelectedCase) {
+      errorEl.textContent = 'Find and select the case this payment is for first.';
+      errorEl.hidden = false;
+      return;
+    }
+
+    const body = {
+      case_id: pmSelectedCase.id,
+      amount: Number(document.getElementById('pm-amount').value),
+      payment_method: document.getElementById('pm-method').value,
+      payment_type: document.getElementById('pm-type').value,
+    };
+    const fund = document.getElementById('pm-fund').value;
+    if (fund) body.fund_category_id = fund;
+    const notes = document.getElementById('pm-notes').value.trim();
+    if (notes) body.notes = notes;
+
+    try {
+      const result = await apiFetch('/api/payments', { method: 'POST', body: JSON.stringify(body) });
+      successEl.textContent = `Payment recorded (Receipt ${result.receipt_number}).`;
+      successEl.hidden = false;
+      form.reset();
+      pmSelectedCase = null;
+      document.getElementById('pm-case-status').textContent = '';
+      loadPaymentsList();
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
+
+  document.getElementById('fund-report-btn').onclick = () => {
+    const panel = document.getElementById('fund-report-panel');
+    panel.hidden = !panel.hidden;
+  };
+  document.getElementById('fund-report-run').onclick = loadFundReport;
+}
+
+async function populateFundCategorySelect() {
+  try {
+    const data = await apiFetch('/api/fund-categories?is_active=true');
+    const select = document.getElementById('pm-fund');
+    select.innerHTML =
+      '<option value="">-- none --</option>' +
+      data.results.map((f) => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join('');
+  } catch {
+    /* leave select as-is if this fails */
+  }
+}
+
+async function loadPaymentsList() {
+  const listEl = document.getElementById('payments-list');
+  const type = document.getElementById('payment-filter-type').value;
+  const params = new URLSearchParams({ limit: '30' });
+  if (type) params.set('payment_type', type);
+
+  listEl.innerHTML = '<li class="hint">Loading...</li>';
+  try {
+    const data = await apiFetch(`/api/payments?${params.toString()}`);
+    listEl.innerHTML = '';
+    if (data.results.length === 0) listEl.innerHTML = '<li class="hint">No payments match.</li>';
+    data.results.forEach((p) => {
+      const li = document.createElement('li');
+      li.className = 'result-item';
+      li.innerHTML = `<div class="r-title">${fmtMoney(p.amount)} — ${escapeHtml(p.case_number)}</div><div class="r-sub">${humanize(
+        p.payment_type
+      )} — ${humanize(p.payment_method)} — Receipt ${escapeHtml(p.receipt_number)} — ${fmtDateTime(p.paid_at)}</div>`;
+      listEl.appendChild(li);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<li class="hint">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+async function loadFundReport() {
+  const resultsEl = document.getElementById('fund-report-results');
+  const totalEl = document.getElementById('fund-report-total');
+  const from = document.getElementById('fund-report-from').value;
+  const to = document.getElementById('fund-report-to').value;
+  const params = new URLSearchParams();
+  if (from) params.set('date_from', from);
+  if (to) params.set('date_to', to);
+
+  resultsEl.innerHTML = '<li class="hint">Loading...</li>';
+  totalEl.textContent = '';
+  try {
+    const data = await apiFetch(`/api/payments/fund-distribution-report?${params.toString()}`);
+    resultsEl.innerHTML = data.funds
+      .map(
+        (f) =>
+          `<li class="result-item"><div class="r-title">${escapeHtml(f.fund_category)}</div><div class="r-sub">${fmtMoney(
+            f.total_amount
+          )} — ${f.payment_count} payment(s)</div></li>`
+      )
+      .join('');
+    totalEl.textContent = `Grand total: ${fmtMoney(data.grand_total)}`;
+  } catch (err) {
+    resultsEl.innerHTML = `<li class="hint">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+// ---------------- Reminders ----------------
+
+function wireRemindersPanel() {
+  const newBtn = document.getElementById('reminder-new-btn');
+  const form = document.getElementById('reminder-form');
+  newBtn.onclick = () => {
+    form.hidden = !form.hidden;
+  };
+
+  wireCaseLookup('rm-case-search', 'rm-case-find', 'rm-case-status', 'rm-case-results', (c) => {
+    rmSelectedCase = c;
+  });
+
+  document.getElementById('reminder-filter-status').onchange = loadRemindersList;
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('reminder-form-error');
+    const successEl = document.getElementById('reminder-form-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+
+    if (!rmSelectedCase) {
+      errorEl.textContent = 'Find and select the case this reminder is for first.';
+      errorEl.hidden = false;
+      return;
+    }
+    const scheduled = document.getElementById('rm-scheduled').value;
+    if (!scheduled) {
+      errorEl.textContent = 'Choose a scheduled send date/time.';
+      errorEl.hidden = false;
+      return;
+    }
+
+    const body = {
+      case_id: rmSelectedCase.id,
+      reminder_type: document.getElementById('rm-type').value,
+      // datetime-local has no timezone of its own -- new Date() parses it in
+      // the browser's local zone, and toISOString() converts to UTC, which
+      // is what scheduled_send_at (TIMESTAMPTZ) expects.
+      scheduled_send_at: new Date(scheduled).toISOString(),
+    };
+    const channel = document.getElementById('rm-channel').value;
+    if (channel) body.channel = channel;
+    const notes = document.getElementById('rm-notes').value.trim();
+    if (notes) body.notes = notes;
+
+    try {
+      await apiFetch('/api/reminders', { method: 'POST', body: JSON.stringify(body) });
+      successEl.textContent = 'Reminder queued.';
+      successEl.hidden = false;
+      form.reset();
+      rmSelectedCase = null;
+      document.getElementById('rm-case-status').textContent = '';
+      loadRemindersList();
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
+}
+
+async function loadRemindersList() {
+  const listEl = document.getElementById('reminders-list');
+  const status = document.getElementById('reminder-filter-status').value;
+  const params = new URLSearchParams({ limit: '30' });
+  if (status) params.set('status', status);
+
+  listEl.innerHTML = '<li class="hint">Loading...</li>';
+  try {
+    const data = await apiFetch(`/api/reminders?${params.toString()}`);
+    listEl.innerHTML = '';
+    if (data.results.length === 0) listEl.innerHTML = '<li class="hint">No reminders match.</li>';
+    data.results.forEach((r) => {
+      const li = document.createElement('li');
+      li.className = 'result-item';
+      li.innerHTML = `<div class="r-title">${escapeHtml(r.case_number)} — ${humanize(r.reminder_type)}</div><div class="r-sub">${fmtDateTime(
+        r.scheduled_send_at
+      )} — ${fmtStatus(r.status)}${r.channel && r.channel !== 'None' ? ' — ' + r.channel : ''}</div>`;
+      // Cancel is only meaningful before a reminder has resolved --
+      // reminders.controller.js's updateReminder refuses to touch an
+      // already-Sent/Cancelled one, matching that here rather than
+      // offering a button that would just 409.
+      if (r.status === 'Pending' || r.status === 'Not_Configured') {
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'btn btn-link';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.onclick = async (ev) => {
+          ev.stopPropagation();
+          try {
+            await apiFetch(`/api/reminders/${r.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Cancelled' }) });
+            loadRemindersList();
+          } catch (err) {
+            listEl.insertAdjacentHTML('afterbegin', `<li class="hint error-text">${escapeHtml(err.message)}</li>`);
+          }
+        };
+        li.appendChild(cancelBtn);
+      }
+      listEl.appendChild(li);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<li class="hint">${escapeHtml(err.message)}</li>`;
   }
 }
 
