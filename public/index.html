@@ -1063,6 +1063,7 @@
     <section class="panel">
       <div class="detail-toolbar no-print">
         <button class="btn btn-link back-btn">&larr; Back to cases</button>
+        <button class="btn btn-secondary fta-notice-btn">FTA Notice</button>
         <button class="btn btn-secondary print-btn">Print</button>
       </div>
       <div class="report-letterhead">
@@ -1138,6 +1139,129 @@
     </section>
   </template>
 
+  <template id="tpl-fta-notice">
+    <section class="panel">
+      <div class="detail-toolbar no-print">
+        <button class="btn btn-link fta-back-btn">&larr; Back to case</button>
+        <button class="btn btn-secondary print-btn">Print</button>
+      </div>
+      <div class="report-letterhead">
+        <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
+        <div>
+          <div class="report-dept-name">Gates Police Department</div>
+          <div class="report-dept-contact">10085 2nd Street, Gates, TN 38037 &middot; (731) 290-0614</div>
+        </div>
+      </div>
+
+      <p class="fn-error error-text" hidden></p>
+
+      <div class="fn-body" hidden>
+        <h2>Notice of Failure to Appear</h2>
+        <p class="ticket-authority">Gates Municipal Court</p>
+
+        <dl class="detail-grid">
+          <dt>Case Number</dt><dd class="fn-case-number"></dd>
+          <dt>Defendant</dt><dd class="fn-defendant"></dd>
+          <dt>Date of Birth</dt><dd class="fn-dob"></dd>
+          <dt>Case Type</dt><dd class="fn-case-type"></dd>
+          <dt>Case Status</dt><dd class="fn-case-status"></dd>
+        </dl>
+
+        <h3>Charges</h3>
+        <ul class="result-list fn-charges"></ul>
+
+        <h3>Recorded Failure(s) to Appear</h3>
+        <ul class="result-list fn-appearances"></ul>
+
+        <p class="ticket-legal-text">This notice documents that the above-named defendant failed to appear as required for the docket appearance(s) listed above. Failure to appear as required is punishable as contempt of court and may result in further action, including issuance of a warrant. To resolve this matter, contact the Gates Municipal Court Clerk at 10085 2nd Street, Gates, TN 38037, (731) 836-7501.</p>
+      </div>
+    </section>
+  </template>
+
+  <template id="tpl-warrant-detail">
+    <section class="panel">
+      <div class="detail-toolbar no-print">
+        <button class="btn btn-link wd-back-btn">&larr; Back to warrants</button>
+        <button class="btn btn-secondary print-btn">Print</button>
+      </div>
+      <div class="report-letterhead">
+        <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
+        <div>
+          <div class="report-dept-name">Gates Police Department</div>
+          <div class="report-dept-contact">10085 2nd Street, Gates, TN 38037 &middot; (731) 290-0614</div>
+        </div>
+      </div>
+
+      <h2>Warrant Tracking Record</h2>
+      <p class="ticket-authority">Gates Municipal Court</p>
+
+      <dl class="detail-grid">
+        <dt>Case Number</dt><dd class="wd-case-number"></dd>
+        <dt>Defendant</dt><dd class="wd-defendant"></dd>
+        <dt>Date of Birth</dt><dd class="wd-dob"></dd>
+        <dt>Warrant Type</dt><dd class="wd-type"></dd>
+        <dt>Status</dt><dd class="wd-status"></dd>
+        <dt>Judge</dt><dd class="wd-judge"></dd>
+        <dt>Issued</dt><dd class="wd-issued"></dd>
+        <dt>Recalled</dt><dd class="wd-recalled"></dd>
+        <dt>Served</dt><dd class="wd-served"></dd>
+      </dl>
+      <p class="wd-notes"></p>
+
+      <div class="edit-section no-print">
+        <h3>Update Status</h3>
+        <div class="wd-actions"></div>
+        <p class="wd-status-error error-text" hidden></p>
+        <p class="wd-status-success success-text" hidden></p>
+      </div>
+    </section>
+  </template>
+
+  <template id="tpl-monthly-report">
+    <section class="panel">
+      <div class="detail-toolbar no-print">
+        <button class="btn btn-link mr-back-btn">&larr; Back to Court</button>
+        <button class="btn btn-secondary print-btn">Print</button>
+      </div>
+      <div class="report-letterhead">
+        <img src="/assets/gates-pd-logo.jpg" alt="Gates Police Department" class="report-logo" />
+        <div>
+          <div class="report-dept-name">Gates Police Department</div>
+          <div class="report-dept-contact">10085 2nd Street, Gates, TN 38037 &middot; (731) 290-0614</div>
+        </div>
+      </div>
+
+      <h2>Monthly Court Activity Report</h2>
+      <p class="mr-period ticket-authority"></p>
+
+      <dl class="detail-grid">
+        <dt>Citations Issued</dt><dd class="mr-citations"></dd>
+        <dt>Dockets Completed</dt><dd class="mr-dockets"></dd>
+        <dt>FTA Appearances</dt><dd class="mr-ftas"></dd>
+        <dt>Payments Total</dt><dd class="mr-payments-total"></dd>
+      </dl>
+
+      <h3>Cases Opened by Type</h3>
+      <ul class="result-list mr-cases-opened"></ul>
+
+      <h3>Cases Closed by Type</h3>
+      <ul class="result-list mr-cases-closed"></ul>
+
+      <h3>Charges Disposed by Disposition</h3>
+      <ul class="result-list mr-charges-disposed"></ul>
+
+      <h3>Payments by Type</h3>
+      <ul class="result-list mr-payments-by-type"></ul>
+
+      <h3>Warrants</h3>
+      <dl class="detail-grid">
+        <dt>Issued</dt><dd class="mr-warrants-issued"></dd>
+        <dt>Recalled</dt><dd class="mr-warrants-recalled"></dd>
+        <dt>Served</dt><dd class="mr-warrants-served"></dd>
+      </dl>
+    </section>
+  </template>
+
   <template id="tpl-court-admin">
     <section class="panel">
       <h2>Court</h2>
@@ -1147,6 +1271,8 @@
         <button class="scope-btn" data-court-scope="judges">Judges</button>
         <button class="scope-btn" data-court-scope="payments">Payments</button>
         <button class="scope-btn" data-court-scope="reminders">Reminders</button>
+        <button class="scope-btn" data-court-scope="warrants">Warrants</button>
+        <button class="scope-btn" data-court-scope="reports">Reports</button>
       </div>
 
       <!-- Dashboard -->
@@ -1378,6 +1504,50 @@
           </select>
         </div>
         <ul id="reminders-list" class="result-list"></ul>
+      </div>
+
+      <!-- Warrants -->
+      <div class="court-scope-panel" data-court-panel="warrants" hidden>
+        <button id="warrant-new-btn" class="btn btn-primary">+ Record Warrant</button>
+        <form id="warrant-form" hidden novalidate>
+          <label for="wr-case-search">Case</label>
+          <div class="search-form">
+            <input id="wr-case-search" placeholder="Case # or defendant name" />
+            <button type="button" id="wr-case-find" class="btn btn-secondary">Find</button>
+          </div>
+          <p id="wr-case-status" class="hint"></p>
+          <ul id="wr-case-results" class="result-list"></ul>
+          <label for="wr-judge">Judge (optional)</label>
+          <select id="wr-judge"><option value="">-- none --</option></select>
+          <label for="wr-type">Warrant Type</label>
+          <select id="wr-type">
+            <option value="Capias">Capias</option>
+            <option value="Bench_Warrant">Bench Warrant</option>
+          </select>
+          <label for="wr-notes">Notes (optional)</label>
+          <textarea id="wr-notes" rows="2"></textarea>
+          <button type="submit" class="btn btn-primary btn-block">Record Warrant</button>
+          <p id="warrant-form-error" class="error-text" hidden></p>
+          <p id="warrant-form-success" class="success-text" hidden></p>
+        </form>
+
+        <div class="filter-row">
+          <select id="warrant-filter-status">
+            <option value="">Any status</option>
+            <option value="Issued">Issued</option>
+            <option value="Recalled">Recalled</option>
+            <option value="Served">Served</option>
+          </select>
+        </div>
+        <ul id="warrants-list" class="result-list"></ul>
+      </div>
+
+      <!-- Reports -->
+      <div class="court-scope-panel" data-court-panel="reports" hidden>
+        <label for="report-month">Month</label>
+        <input id="report-month" type="month" />
+        <button id="report-run-btn" class="btn btn-primary">Run Report</button>
+        <p id="report-error" class="error-text" hidden></p>
       </div>
     </section>
   </template>

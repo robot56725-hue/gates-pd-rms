@@ -2774,6 +2774,7 @@ async function renderCaseDetail(id) {
   mount('tpl-case-detail');
   mainContent.querySelector('.back-btn').addEventListener('click', () => navigate('cases'));
   wirePrintButton(mainContent.querySelector('.print-btn'));
+  mainContent.querySelector('.fta-notice-btn').addEventListener('click', () => renderFtaNotice(id));
 
   document.getElementById('cac-category').innerHTML = optionsHtml(CHARGE_CATEGORIES);
 
@@ -2891,9 +2892,65 @@ async function renderCaseDetail(id) {
   }
 }
 
+/**
+ * GET /api/cases/:id/fta-notice -- a data feed only (cases.controller.js's
+ * own comment on getFtaNotice), so this is the page that turns it into a
+ * printable document. The endpoint 404s when the case has no recorded FTA
+ * docket entries at all -- shown here as a plain message rather than an
+ * empty notice, since a notice documenting nothing isn't a real notice.
+ */
+async function renderFtaNotice(caseId) {
+  mount('tpl-fta-notice');
+  mainContent.querySelector('.fta-back-btn').addEventListener('click', () => renderCaseDetail(caseId));
+  wirePrintButton(mainContent.querySelector('.print-btn'));
+
+  const errorEl = mainContent.querySelector('.fn-error');
+  const bodyEl = mainContent.querySelector('.fn-body');
+
+  try {
+    const data = await apiFetch(`/api/cases/${caseId}/fta-notice`);
+
+    mainContent.querySelector('.fn-case-number').textContent = data.case_number;
+    mainContent.querySelector('.fn-defendant').textContent = `${data.defendant_last_name}, ${data.defendant_first_name}`;
+    mainContent.querySelector('.fn-dob').textContent = fmtDateOnly(data.defendant_dob);
+    mainContent.querySelector('.fn-case-type').textContent = humanize(data.case_type);
+    mainContent.querySelector('.fn-case-status').textContent = fmtStatus(data.case_status);
+
+    const chargesEl = mainContent.querySelector('.fn-charges');
+    chargesEl.innerHTML =
+      data.charges.length === 0
+        ? '<li class="hint">None.</li>'
+        : data.charges
+            .map(
+              (c) =>
+                `<li class="result-item"><div class="r-title">${humanize(c.charge_category)} — ${escapeHtml(
+                  c.charge_code
+                )}</div><div class="r-sub">${escapeHtml(c.charge_description)}</div></li>`
+            )
+            .join('');
+
+    const appearancesEl = mainContent.querySelector('.fn-appearances');
+    appearancesEl.innerHTML = data.fta_appearances
+      .map(
+        (a) =>
+          `<li class="result-item"><div class="r-title">${fmtDateOnly(a.docket_date)}${
+            a.docket_time ? ' ' + fmtTimeOnly(a.docket_time) : ''
+          }${a.location ? ' — ' + escapeHtml(a.location) : ''}</div><div class="r-sub">${
+            a.judge_name ? escapeHtml(a.judge_name) : 'No judge assigned'
+          }${a.entry_notes ? ' — ' + escapeHtml(a.entry_notes) : ''}</div></li>`
+      )
+      .join('');
+
+    bodyEl.hidden = false;
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+}
+
 // ------------------------------------------------------------------
-// Court Admin (Dashboard / Docket / Judges / Payments / Reminders --
-// db/migrations/011_..._court_case_management.sql)
+// Court Admin (Dashboard / Docket / Judges / Payments / Reminders /
+// Warrants / Reports -- db/migrations/011_..._court_case_management.sql)
 // ------------------------------------------------------------------
 
 let courtScope = 'dashboard';
@@ -2902,6 +2959,7 @@ let selectedJudgeId = null;
 let pmSelectedCase = null; // { id, case_number } -- payment-form's linked case
 let rmSelectedCase = null; // reminder-form's linked case
 let ddSelectedCase = null; // docket-detail's "add this case to the docket" selection
+let wrSelectedCase = null; // warrant-form's linked case
 
 /**
  * Reusable find-a-case-by-number-or-defendant-name widget -- same
@@ -2977,6 +3035,8 @@ function renderCourtAdmin() {
   wireJudgesPanel();
   wirePaymentsPanel();
   wireRemindersPanel();
+  wireWarrantsPanel();
+  wireReportsPanel();
 
   loadCourtScope('dashboard');
 }
@@ -2987,6 +3047,9 @@ function loadCourtScope(scope) {
   else if (scope === 'judges') loadJudgesList();
   else if (scope === 'payments') loadPaymentsList();
   else if (scope === 'reminders') loadRemindersList();
+  else if (scope === 'warrants') loadWarrantsList();
+  // 'reports' has no list to load -- it's just a month picker until the
+  // user runs a report, which navigates to its own tpl-monthly-report page.
 }
 
 async function loadCourtDashboard() {
@@ -3617,6 +3680,229 @@ async function loadRemindersList() {
     });
   } catch (err) {
     listEl.innerHTML = `<li class="hint">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+// ---------------- Warrants ----------------
+
+function wireWarrantsPanel() {
+  const newBtn = document.getElementById('warrant-new-btn');
+  const form = document.getElementById('warrant-form');
+  newBtn.onclick = () => {
+    form.hidden = !form.hidden;
+  };
+
+  wireCaseLookup('wr-case-search', 'wr-case-find', 'wr-case-status', 'wr-case-results', (c) => {
+    wrSelectedCase = c;
+  });
+
+  populateJudgeSelect(document.getElementById('wr-judge'), true);
+
+  document.getElementById('warrant-filter-status').onchange = loadWarrantsList;
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('warrant-form-error');
+    const successEl = document.getElementById('warrant-form-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+
+    if (!wrSelectedCase) {
+      errorEl.textContent = 'Find and select the case this warrant is for first.';
+      errorEl.hidden = false;
+      return;
+    }
+
+    const body = {
+      case_id: wrSelectedCase.id,
+      warrant_type: document.getElementById('wr-type').value,
+    };
+    const judge = document.getElementById('wr-judge').value;
+    if (judge) body.judge_id = judge;
+    const notes = document.getElementById('wr-notes').value.trim();
+    if (notes) body.notes = notes;
+
+    try {
+      await apiFetch('/api/warrants', { method: 'POST', body: JSON.stringify(body) });
+      successEl.textContent = 'Warrant recorded.';
+      successEl.hidden = false;
+      form.reset();
+      wrSelectedCase = null;
+      document.getElementById('wr-case-status').textContent = '';
+      loadWarrantsList();
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
+}
+
+async function loadWarrantsList() {
+  const listEl = document.getElementById('warrants-list');
+  const status = document.getElementById('warrant-filter-status').value;
+  const params = new URLSearchParams({ limit: '30' });
+  if (status) params.set('warrant_status', status);
+
+  listEl.innerHTML = '<li class="hint">Loading...</li>';
+  try {
+    const data = await apiFetch(`/api/warrants?${params.toString()}`);
+    listEl.innerHTML = '';
+    if (data.results.length === 0) listEl.innerHTML = '<li class="hint">No warrants match.</li>';
+    data.results.forEach((w) => {
+      const li = document.createElement('li');
+      li.className = 'result-item';
+      li.innerHTML = `<div class="r-title">${escapeHtml(w.case_number)} — ${humanize(w.warrant_type)}</div><div class="r-sub">${escapeHtml(
+        w.defendant_last_name
+      )}, ${escapeHtml(w.defendant_first_name)} — ${fmtStatus(w.warrant_status)} — ${fmtDateTime(w.issued_at)}</div>`;
+      li.addEventListener('click', () => renderWarrantDetail(w.id));
+      listEl.appendChild(li);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<li class="hint">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+/**
+ * Standalone printable page (own tpl-warrant-detail), same reason
+ * renderFtaNotice and renderCaseDetail are each their own top-level
+ * template rather than an overlay inside tpl-court-admin: the print CSS
+ * (.no-print, @media print in styles.css) hides everything not part of the
+ * document being printed, and that only works cleanly when the whole page
+ * IS the document -- not one panel among several sharing the Court tab.
+ */
+async function renderWarrantDetail(id) {
+  mount('tpl-warrant-detail');
+  mainContent.querySelector('.wd-back-btn').addEventListener('click', () => renderCourtAdmin());
+  wirePrintButton(mainContent.querySelector('.print-btn'));
+
+  async function loadDetail() {
+    const w = await apiFetch(`/api/warrants/${id}`);
+
+    mainContent.querySelector('.wd-case-number').textContent = w.case_number;
+    mainContent.querySelector('.wd-defendant').textContent = `${w.defendant_last_name}, ${w.defendant_first_name}`;
+    mainContent.querySelector('.wd-dob').textContent = fmtDateOnly(w.defendant_dob);
+    mainContent.querySelector('.wd-type').textContent = humanize(w.warrant_type);
+    mainContent.querySelector('.wd-status').textContent = fmtStatus(w.warrant_status);
+    mainContent.querySelector('.wd-judge').textContent = w.judge_name || 'No judge assigned';
+    mainContent.querySelector('.wd-issued').textContent = fmtDateTime(w.issued_at);
+    mainContent.querySelector('.wd-recalled').textContent = w.recalled_at ? fmtDateTime(w.recalled_at) : '—';
+    mainContent.querySelector('.wd-served').textContent = w.served_at ? fmtDateTime(w.served_at) : '—';
+    mainContent.querySelector('.wd-notes').textContent = w.notes || '';
+
+    // Recalled/Served are terminal (updateWarrantStatus in
+    // warrants.controller.js 409s otherwise) -- no action buttons once
+    // either has happened, matching the reminders list's Cancel-button gate.
+    const actionsEl = mainContent.querySelector('.wd-actions');
+    actionsEl.innerHTML = '';
+    if (w.warrant_status === 'Issued') {
+      ['Recalled', 'Served'].forEach((next) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-secondary';
+        btn.textContent = next === 'Recalled' ? 'Mark Recalled' : 'Mark Served';
+        btn.onclick = async () => {
+          const errorEl = mainContent.querySelector('.wd-status-error');
+          const successEl = mainContent.querySelector('.wd-status-success');
+          errorEl.hidden = true;
+          successEl.hidden = true;
+          try {
+            await apiFetch(`/api/warrants/${id}/status`, {
+              method: 'PATCH',
+              body: JSON.stringify({ warrant_status: next }),
+            });
+            successEl.textContent = `Warrant marked ${next}.`;
+            successEl.hidden = false;
+            await loadDetail();
+          } catch (err) {
+            errorEl.textContent = formErrorMessage(err);
+            errorEl.hidden = false;
+          }
+        };
+        actionsEl.appendChild(btn);
+      });
+    } else {
+      actionsEl.innerHTML = '<p class="hint">This warrant is resolved and cannot be changed further.</p>';
+    }
+  }
+
+  try {
+    await loadDetail();
+  } catch (err) {
+    mainContent.querySelector('.wd-case-number').textContent = err.message;
+  }
+}
+
+// ---------------- Reports ----------------
+
+function wireReportsPanel() {
+  document.getElementById('report-run-btn').onclick = () => {
+    const errorEl = document.getElementById('report-error');
+    errorEl.hidden = true;
+    const month = document.getElementById('report-month').value; // <input type=month> -> "YYYY-MM"
+    if (!month) {
+      errorEl.textContent = 'Choose a month first.';
+      errorEl.hidden = false;
+      return;
+    }
+    renderMonthlyReport(month);
+  };
+}
+
+/**
+ * GET /api/reports/monthly-summary?month=YYYY-MM -- one consolidated
+ * activity report (reports.controller.js's own comment). Rendered as its
+ * own printable page for the same reason renderWarrantDetail is (see the
+ * comment there): the print CSS needs the whole page to be the document.
+ */
+async function renderMonthlyReport(month) {
+  mount('tpl-monthly-report');
+  mainContent.querySelector('.mr-back-btn').addEventListener('click', () => navigate('court-admin'));
+  wirePrintButton(mainContent.querySelector('.print-btn'));
+
+  mainContent.querySelector('.mr-period').textContent = `Loading ${month}...`;
+
+  try {
+    const data = await apiFetch(`/api/reports/monthly-summary?month=${encodeURIComponent(month)}`);
+
+    const monthLabel = new Date(`${data.month}-01T00:00:00`).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+    });
+    mainContent.querySelector('.mr-period').textContent = `${monthLabel} — Gates Municipal Court`;
+
+    mainContent.querySelector('.mr-citations').textContent = String(data.citations_issued);
+    mainContent.querySelector('.mr-dockets').textContent = String(data.dockets_completed);
+    mainContent.querySelector('.mr-ftas').textContent = String(data.fta_appearances);
+    mainContent.querySelector('.mr-payments-total').textContent = fmtMoney(data.payments.total_amount);
+
+    const listOrNone = (rows, render) =>
+      rows.length === 0 ? '<li class="hint">None.</li>' : rows.map(render).join('');
+
+    mainContent.querySelector('.mr-cases-opened').innerHTML = listOrNone(
+      data.cases.opened_by_type,
+      (r) => `<li class="result-item"><div class="r-title">${humanize(r.case_type)}</div><div class="r-sub">${r.n}</div></li>`
+    );
+    mainContent.querySelector('.mr-cases-closed').innerHTML = listOrNone(
+      data.cases.closed_by_type,
+      (r) => `<li class="result-item"><div class="r-title">${humanize(r.case_type)}</div><div class="r-sub">${r.n}</div></li>`
+    );
+    mainContent.querySelector('.mr-charges-disposed').innerHTML = listOrNone(
+      data.charges_disposed_by_disposition,
+      (r) => `<li class="result-item"><div class="r-title">${humanize(r.disposition)}</div><div class="r-sub">${r.n}</div></li>`
+    );
+    mainContent.querySelector('.mr-payments-by-type').innerHTML = listOrNone(
+      data.payments.by_type,
+      (r) =>
+        `<li class="result-item"><div class="r-title">${humanize(r.payment_type)}</div><div class="r-sub">${fmtMoney(
+          r.total_amount
+        )} — ${r.n} payment(s)</div></li>`
+    );
+
+    mainContent.querySelector('.mr-warrants-issued').textContent = String(data.warrants.issued);
+    mainContent.querySelector('.mr-warrants-recalled').textContent = String(data.warrants.recalled);
+    mainContent.querySelector('.mr-warrants-served').textContent = String(data.warrants.served);
+  } catch (err) {
+    mainContent.querySelector('.mr-period').textContent = err.message;
   }
 }
 

@@ -13,11 +13,17 @@ const WARRANT_JOIN_COLUMNS = `
   cw.id, cw.case_id, cw.judge_id, cw.warrant_type, cw.warrant_status,
   cw.issued_at, cw.recalled_at, cw.served_at, cw.notes, cw.created_by_id,
   cw.created_at, cw.updated_at,
-  cc.case_number, cj.full_name AS judge_name
+  cc.case_number, cc.case_type, cj.full_name AS judge_name,
+  p.first_name AS defendant_first_name, p.last_name AS defendant_last_name, p.dob AS defendant_dob
 `;
+// court_cases.defendant_id is NOT NULL (see cases.controller.js's createCase),
+// so this can be a plain JOIN rather than LEFT JOIN, same as
+// cases.controller.js's own CASE_JOIN_FROM. Added so the warrant print
+// template has a defendant name to show, not just a case number.
 const WARRANT_JOIN_FROM = `
   FROM court_warrants cw
   JOIN court_cases cc ON cc.id = cw.case_id
+  JOIN master_persons p ON p.id = cc.defendant_id
   LEFT JOIN court_judges cj ON cj.id = cw.judge_id
 `;
 
