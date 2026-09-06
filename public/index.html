@@ -606,6 +606,12 @@
         </fieldset>
 
         <fieldset>
+          <legend>TCA Charges <span class="hint">(optional -- Tennessee Code Annotated statute charges, distinct from the TIBRS offense codes above)</span></legend>
+          <div id="incident-tca-charge-rows"></div>
+          <button type="button" id="incident-add-tca-charge" class="btn btn-secondary">+ Add TCA Charge</button>
+        </fieldset>
+
+        <fieldset>
           <legend>Victim-Offender Relationships <span class="hint">(optional)</span></legend>
           <div id="incident-relationship-rows"></div>
           <button type="button" id="incident-add-relationship" class="btn btn-secondary">+ Add Relationship</button>
@@ -650,6 +656,8 @@
       </dl>
       <h3>Offenses</h3>
       <ul class="result-list i-offenses"></ul>
+      <h3>TCA Charges</h3>
+      <ul class="result-list i-tca-charges"></ul>
       <h3>Persons</h3>
       <ul class="result-list i-persons"></ul>
       <h3>Victim-Offender Relationships</h3>

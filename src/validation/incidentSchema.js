@@ -149,6 +149,19 @@ const incidentPersonSchema = Joi.object({
   first_name: Joi.string().trim().min(1).max(80).optional(),
   last_name: Joi.string().trim().min(1).max(80).optional(),
   dob: isoDate().optional(),
+  // Same pattern/validation as citationSchema.js's violator.ssn -- stored
+  // encrypted via findOrCreatePerson (src/services/personService.js) and,
+  // as of this field's addition, deliberately decrypted back out on
+  // GET /api/incidents/:id (see incidents.controller.js) so a full incident
+  // report -- unlike every other read endpoint in this app -- can display
+  // and print it. That's a one-time, explicit exception to the "SSN is
+  // never a byproduct of a general lookup" rule persons.controller.js
+  // documents, made because a real incident report is expected to carry it.
+  ssn: Joi.string()
+    .trim()
+    .pattern(/^\d{3}-?\d{2}-?\d{4}$/)
+    .message('must be a 9-digit SSN, with or without dashes')
+    .optional(),
   sex: Joi.string()
     .valid(...PERSON_SEX_VALUES)
     .optional(),
@@ -203,6 +216,23 @@ const propertyInputSchema = Joi.object({
   date_recovered: Joi.date().iso().optional(),
 });
 
+// A Tennessee Code Annotated statute charge -- distinct from the TIBRS/
+// NIBRS crime-classification code in `offenses` above (see
+// db/migrations/013_add_incident_tca_charges.sql for why these are two
+// separate things a real incident report carries side by side). Mirrors
+// e_citations.tca_code/.offense_description (both free text, since statute
+// numbers/descriptions are periodically amended and aren't a fixed enum).
+// offender_index, like relationshipInputSchema's victim_index/
+// offender_index, is a 0-based position into THIS request's `persons`
+// array -- optional, since a charge is sometimes recorded before a specific
+// offender is confirmed.
+const tcaChargeInputSchema = Joi.object({
+  tca_code: Joi.string().trim().min(1).max(30).required(),
+  charge_description: Joi.string().trim().min(1).max(500).required(),
+  charge_classification: Joi.string().trim().max(60).allow('', null).optional(),
+  offender_index: Joi.number().integer().min(0).optional(),
+});
+
 const incidentCreateSchema = Joi.object({
   id: Joi.string().pattern(UUID_RE).message('must be a valid UUID').optional(),
   case_number: Joi.string().trim().min(1).max(40).required(),
@@ -223,6 +253,7 @@ const incidentCreateSchema = Joi.object({
   persons: Joi.array().items(incidentPersonSchema).max(50).default([]),
   relationships: Joi.array().items(relationshipInputSchema).default([]),
   property: Joi.array().items(propertyInputSchema).default([]),
+  tca_charges: Joi.array().items(tcaChargeInputSchema).max(20).default([]),
 
   narrative: Joi.string().trim().max(10000).allow('', null).optional(),
 })

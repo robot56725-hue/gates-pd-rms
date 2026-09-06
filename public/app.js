@@ -281,6 +281,18 @@ function fmtOrDash(value) {
   return value === null || value === undefined || value === '' ? '—' : value;
 }
 
+// Digits-only SSN (however it was entered/stored) formatted for display as
+// XXX-XX-XXXX. Used only on the incident detail/print view -- see the note
+// on incidentPersonSchema's ssn field (src/validation/incidentSchema.js)
+// for why incidents, uniquely among this app's read endpoints, decrypt and
+// return it at all.
+function fmtSsn(value) {
+  if (!value) return '—';
+  const digits = String(value).replace(/\D/g, '');
+  if (digits.length !== 9) return value;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
+}
+
 // ------------------------------------------------------------------
 // Shared: approval workflow, edit-toggle, print -- reused across the
 // citation/incident/crash/evidence detail views, which all carry the same
@@ -1543,6 +1555,12 @@ function makeRemovableRow(container, className, innerHtml) {
 // Incidents
 // ------------------------------------------------------------------
 
+// Refreshes every select that references a row in #incident-person-rows by
+// position -- victim/offender pickers on Victim-Offender Relationship rows,
+// and the offender picker on TCA Charge rows (both need the same "#N First
+// Last (Role)" live-updating option list, since both are recorded as a
+// 0-based index into the request's `persons` array -- see relationshipInput
+// Schema/tcaChargeInputSchema in src/validation/incidentSchema.js).
 function refreshRelationshipPersonSelects() {
   const personRows = Array.from(document.querySelectorAll('#incident-person-rows .dyn-row'));
   const optsHtml =
@@ -1556,11 +1574,15 @@ function refreshRelationshipPersonSelects() {
         return `<option value="${row.dataset.rowId}">${escapeHtml(label)}</option>`;
       })
       .join('');
-  document.querySelectorAll('#incident-relationship-rows .rel-victim, #incident-relationship-rows .rel-offender').forEach((sel) => {
-    const prev = sel.value;
-    sel.innerHTML = optsHtml;
-    if (Array.from(sel.options).some((o) => o.value === prev)) sel.value = prev;
-  });
+  document
+    .querySelectorAll(
+      '#incident-relationship-rows .rel-victim, #incident-relationship-rows .rel-offender, #incident-tca-charge-rows .tca-offender'
+    )
+    .forEach((sel) => {
+      const prev = sel.value;
+      sel.innerHTML = optsHtml;
+      if (Array.from(sel.options).some((o) => o.value === prev)) sel.value = prev;
+    });
 }
 
 function addIncidentOffenseRow() {
@@ -1595,6 +1617,27 @@ function addIncidentPersonRow() {
      <select class="p-sex"><option value="">-- select --</option>${optionsHtml(PERSON_SEX_VALUES)}</select>
      <label>Race</label>
      <select class="p-race"><option value="">-- select --</option>${optionsHtml(PERSON_RACE_VALUES)}</select>
+     <label>Height (inches)</label>
+     <input class="p-height" type="number" inputmode="numeric" min="20" max="96" />
+     <label>Weight (lbs)</label>
+     <input class="p-weight" type="number" inputmode="numeric" min="30" max="700" />
+     <label>Eye Color</label>
+     <input class="p-eye-color" />
+     <label>Hair Color</label>
+     <input class="p-hair-color" />
+     <label>Social Security Number <span class="hint">(optional)</span></label>
+     <input class="p-ssn" placeholder="XXX-XX-XXXX" />
+     <label>Phone</label>
+     <input class="p-phone" />
+     <label>Address</label>
+     <input class="p-address" />
+     <label>Driver's License #</label>
+     <input class="p-dl-num" />
+     <label>DL State</label>
+     <input class="p-dl-state" maxlength="2" />
+     <label>DL Class</label>
+     <input class="p-dl-class" />
+     <label class="checkbox-label"><input type="checkbox" class="p-is-cdl" /> Commercial Driver's License (CDL)</label>
      <label>Injury Type</label>
      <select class="p-injury"><option value="">-- select --</option>${optionsHtml(INJURY_TYPES)}</select>`
   );
@@ -1602,6 +1645,23 @@ function addIncidentPersonRow() {
   row.querySelector('.p-first-name').addEventListener('input', refreshRelationshipPersonSelects);
   row.querySelector('.p-last-name').addEventListener('input', refreshRelationshipPersonSelects);
   row._onRemove = refreshRelationshipPersonSelects;
+  refreshRelationshipPersonSelects();
+}
+
+function addIncidentTcaChargeRow() {
+  const container = document.getElementById('incident-tca-charge-rows');
+  makeRemovableRow(
+    container,
+    'tca-charge-row',
+    `<label>TCA Code</label>
+     <input class="tca-code" placeholder="e.g. 39-13-101" required />
+     <label>Charge Description</label>
+     <input class="tca-description" required />
+     <label>Classification <span class="hint">(optional)</span></label>
+     <input class="tca-classification" placeholder="e.g. Class A Misdemeanor" />
+     <label>Offender <span class="hint">(optional)</span></label>
+     <select class="tca-offender"><option value="">-- select --</option></select>`
+  );
   refreshRelationshipPersonSelects();
 }
 
@@ -1648,11 +1708,13 @@ function renderIncidents() {
 
   document.getElementById('incident-offense-rows').innerHTML = '';
   document.getElementById('incident-person-rows').innerHTML = '';
+  document.getElementById('incident-tca-charge-rows').innerHTML = '';
   document.getElementById('incident-relationship-rows').innerHTML = '';
   document.getElementById('incident-property-rows').innerHTML = '';
 
   document.getElementById('incident-add-offense').addEventListener('click', addIncidentOffenseRow);
   document.getElementById('incident-add-person').addEventListener('click', addIncidentPersonRow);
+  document.getElementById('incident-add-tca-charge').addEventListener('click', addIncidentTcaChargeRow);
   document.getElementById('incident-add-relationship').addEventListener('click', addIncidentRelationshipRow);
   document.getElementById('incident-add-property').addEventListener('click', addIncidentPropertyRow);
 
@@ -1680,8 +1742,33 @@ function renderIncidents() {
       if (q('.p-dob')) person.dob = q('.p-dob');
       if (q('.p-sex')) person.sex = q('.p-sex');
       if (q('.p-race')) person.race = q('.p-race');
+      if (q('.p-height')) person.height_inches = Number(q('.p-height'));
+      if (q('.p-weight')) person.weight_lbs = Number(q('.p-weight'));
+      if (q('.p-eye-color')) person.eye_color = q('.p-eye-color');
+      if (q('.p-hair-color')) person.hair_color = q('.p-hair-color');
+      if (q('.p-ssn')) person.ssn = q('.p-ssn');
+      if (q('.p-phone')) person.phone = q('.p-phone');
+      if (q('.p-address')) person.address = q('.p-address');
+      if (q('.p-dl-num')) person.drivers_license_num = q('.p-dl-num');
+      if (q('.p-dl-state')) person.dl_state = q('.p-dl-state').toUpperCase();
+      if (q('.p-dl-class')) person.dl_class = q('.p-dl-class');
+      person.is_cdl = row.querySelector('.p-is-cdl').checked;
       if (q('.p-injury')) person.injury_type = q('.p-injury');
       return person;
+    });
+
+    const tcaCharges = Array.from(document.querySelectorAll('#incident-tca-charge-rows .dyn-row')).map((row) => {
+      const q = (sel) => row.querySelector(sel).value.trim();
+      const charge = {
+        tca_code: q('.tca-code'),
+        charge_description: q('.tca-description'),
+      };
+      if (q('.tca-classification')) charge.charge_classification = q('.tca-classification');
+      const offenderRowId = row.querySelector('.tca-offender').value;
+      if (offenderRowId && personIndexByRowId[offenderRowId] !== undefined) {
+        charge.offender_index = personIndexByRowId[offenderRowId];
+      }
+      return charge;
     });
 
     const offenses = Array.from(document.querySelectorAll('#incident-offense-rows .dyn-row')).map((row) => ({
@@ -1716,6 +1803,7 @@ function renderIncidents() {
       persons,
       relationships,
       property,
+      tca_charges: tcaCharges,
     };
     const lat = val('in-latitude');
     const lng = val('in-longitude');
@@ -1734,6 +1822,7 @@ function renderIncidents() {
       form.reset();
       document.getElementById('incident-offense-rows').innerHTML = '';
       document.getElementById('incident-person-rows').innerHTML = '';
+      document.getElementById('incident-tca-charge-rows').innerHTML = '';
       document.getElementById('incident-relationship-rows').innerHTML = '';
       document.getElementById('incident-property-rows').innerHTML = '';
       addIncidentOffenseRow();
@@ -1816,17 +1905,50 @@ async function renderIncidentDetail(id) {
             )
             .join('');
 
+    // TCA (Tennessee Code Annotated) charges -- the actual statute charge(s)
+    // being brought, distinct from the TIBRS/NIBRS classification codes
+    // above (see db/migrations/013_add_incident_tca_charges.sql).
+    const tcaChargesEl = mainContent.querySelector('.i-tca-charges');
+    tcaChargesEl.innerHTML =
+      inc.tca_charges.length === 0
+        ? '<li class="hint">None.</li>'
+        : inc.tca_charges
+            .map((c) => {
+              const offender =
+                c.offender_first_name || c.offender_last_name
+                  ? `${escapeHtml(c.offender_last_name)}, ${escapeHtml(c.offender_first_name)}`
+                  : null;
+              return `<li class="result-item">
+                <div class="r-title">${escapeHtml(c.tca_code)} — ${escapeHtml(c.charge_description)}</div>
+                <div class="r-sub">${fmtOrDash(c.charge_classification)}${offender ? ` &middot; Offender: ${offender}` : ''}</div>
+              </li>`;
+            })
+            .join('');
+
+    // Full detail per person, not just name/role -- every field
+    // incidentPersonSchema accepts on write (src/validation/incidentSchema.js)
+    // is shown here, matching what master_persons actually stores. SSN is
+    // shown in full (see fmtSsn) -- a deliberate exception made specifically
+    // for incident reports, see the note on getIncidentById's personsResult
+    // query (src/controllers/incidents.controller.js).
     const personsEl = mainContent.querySelector('.i-persons');
     personsEl.innerHTML =
       inc.persons.length === 0
         ? '<li class="hint">None.</li>'
         : inc.persons
-            .map(
-              (p) =>
-                `<li class="result-item"><div class="r-title">${escapeHtml(p.last_name)}, ${escapeHtml(
-                  p.first_name
-                )} (${humanize(p.role)})</div><div class="r-sub">${humanize(p.injury_type || '')}</div></li>`
-            )
+            .map((p) => {
+              const dlBits = [p.drivers_license_num, p.dl_state ? `(${p.dl_state})` : null, p.dl_class ? `Class ${p.dl_class}` : null]
+                .filter(Boolean)
+                .join(' ');
+              return `<li class="result-item">
+                <div class="r-title">${escapeHtml(p.last_name)}, ${escapeHtml(p.first_name)} (${humanize(p.role)})</div>
+                <div class="r-sub">DOB: ${fmtDateOnly(p.dob)} &middot; Age: ${fmtOrDash(p.age)} &middot; Sex: ${fmtEnum(p.sex)} &middot; Race: ${fmtEnum(p.race)}</div>
+                <div class="r-sub">Height: ${fmtHeight(p.height_inches)} &middot; Weight: ${p.weight_lbs != null ? `${p.weight_lbs} lbs` : '—'} &middot; Eyes: ${fmtOrDash(p.eye_color)} &middot; Hair: ${fmtOrDash(p.hair_color)}</div>
+                <div class="r-sub">SSN: ${fmtSsn(p.ssn)} &middot; DL: ${fmtOrDash(dlBits || null)} &middot; CDL: ${fmtYesNo(p.is_cdl)}</div>
+                <div class="r-sub">Phone: ${fmtOrDash(p.phone)} &middot; Address: ${fmtOrDash(p.address)}</div>
+                <div class="r-sub">Injury: ${humanize(p.injury_type || '') || '—'}</div>
+              </li>`;
+            })
             .join('');
 
     const relEl = mainContent.querySelector('.i-relationships');

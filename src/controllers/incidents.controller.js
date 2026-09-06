@@ -1,5 +1,6 @@
 'use strict';
 
+const env = require('../config/env');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 const {
@@ -11,6 +12,22 @@ const {
 const { idParamSchema } = require('../validation/common');
 const { findOrCreatePerson } = require('../services/personService');
 const { makeApprovalHandler } = require('../utils/approval');
+
+/**
+ * Whole years between `dob` and `asOf` -- used to show a person's age as of
+ * the incident (see getIncidentById), not their current age, which would
+ * silently drift every time an old report is reopened.
+ */
+function calculateAgeAsOf(dob, asOf) {
+  const dobDate = new Date(dob);
+  const asOfDate = new Date(asOf);
+  let age = asOfDate.getUTCFullYear() - dobDate.getUTCFullYear();
+  const monthDiff = asOfDate.getUTCMonth() - dobDate.getUTCMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && asOfDate.getUTCDate() < dobDate.getUTCDate())) {
+    age -= 1;
+  }
+  return age;
+}
 
 /**
  * Inserts one incident_persons row per entry in `persons`, resolving each to
@@ -167,6 +184,39 @@ const createIncident = asyncHandler(async (req, res) => {
     );
   }
 
+  // tca_charges' offender_index, like relationships' victim_index/
+  // offender_index above, is a position into THIS request's `persons` array
+  // -- same bounds/role pre-check for the same reason (a clean 422 instead
+  // of tripping db/migrations/013_add_incident_tca_charges.sql's trigger
+  // backstop).
+  for (let i = 0; i < payload.tca_charges.length; i++) {
+    const charge = payload.tca_charges[i];
+    let offenderIncidentPersonId = null;
+    if (charge.offender_index !== undefined) {
+      const offender = incidentPersons[charge.offender_index];
+      if (!offender || offender.role !== 'Offender') {
+        throw new AppError(
+          422,
+          `tca_charges: offender_index ${charge.offender_index} does not refer to a person with role Offender.`
+        );
+      }
+      offenderIncidentPersonId = offender.id;
+    }
+    await db.query(
+      `INSERT INTO incident_tca_charges
+          (incident_id, charge_sequence, tca_code, charge_description, charge_classification, offender_incident_person_id)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        incident.id,
+        i + 1,
+        charge.tca_code.trim(),
+        charge.charge_description.trim(),
+        charge.charge_classification ? charge.charge_classification.trim() : null,
+        offenderIncidentPersonId,
+      ]
+    );
+  }
+
   if (payload.narrative) {
     await db.query(
       `INSERT INTO incident_narratives (incident_id, author_id, narrative_text, version_number, device_created_at)
@@ -181,6 +231,7 @@ const createIncident = asyncHandler(async (req, res) => {
     offense_count: payload.offenses.length,
     person_count: payload.persons.length,
     property_count: payload.property.length,
+    tca_charge_count: payload.tca_charges.length,
     outcome: 'created',
   });
 });
@@ -272,15 +323,40 @@ const getIncidentById = asyncHandler(async (req, res) => {
     [params.id]
   );
 
+  // Full person detail, not just name/dob/sex/race: a real incident report
+  // is expected to carry everything master_persons stores about someone
+  // involved (see incidentSchema.js's incidentPersonSchema, which has
+  // always accepted these fields on write -- this was purely a read-side
+  // gap, master_persons already had every column). ssn_encrypted is
+  // decrypted here specifically -- a deliberate, one-time exception to the
+  // "SSN is never a byproduct of a general lookup" rule
+  // persons.controller.js documents and otherwise follows everywhere else
+  // in this app, made because a full incident report is expected to
+  // include it. decrypt_ssn() is STRICT (001_init_schema.sql), so a NULL
+  // ssn_encrypted or a NULL/unconfigured key both safely yield NULL rather
+  // than an error.
   const personsResult = await db.query(
     `SELECT ip.id, ip.role, ip.sequence_number, ip.injury_type,
-            p.id AS person_id, p.first_name, p.last_name, p.dob, p.sex, p.race
+            p.id AS person_id, p.first_name, p.last_name, p.dob, p.sex, p.race,
+            p.height_inches, p.weight_lbs, p.eye_color, p.hair_color,
+            p.drivers_license_num, p.dl_state, p.dl_class, p.is_cdl,
+            p.phone, p.address,
+            decrypt_ssn(p.ssn_encrypted, $2) AS ssn
        FROM incident_persons ip
        JOIN master_persons p ON p.id = ip.person_id
       WHERE ip.incident_id = $1
       ORDER BY ip.role, ip.sequence_number`,
-    [params.id]
+    [params.id, env.ssnEncryptionKey ?? null]
   );
+
+  // Age as of the incident, not "as of right now" -- a report written up
+  // weeks or years later should still say how old someone was when it
+  // actually happened. Computed here rather than in SQL so it stays a
+  // simple, easily-tested unit instead of a date_part()/age() expression
+  // duplicated across every query that ever needs it.
+  personsResult.rows.forEach((p) => {
+    p.age = p.dob ? calculateAgeAsOf(p.dob, incident.occurrence_date) : null;
+  });
 
   const relationshipsResult = await db.query(
     `SELECT vor.id, vor.relationship,
@@ -314,12 +390,30 @@ const getIncidentById = asyncHandler(async (req, res) => {
     [params.id]
   );
 
+  // TCA (Tennessee Code Annotated) charges -- the actual statute charge(s),
+  // distinct from the TIBRS/NIBRS classification codes in `offenses` above
+  // (see db/migrations/013_add_incident_tca_charges.sql). offender is a
+  // LEFT JOIN since offender_incident_person_id is nullable -- a charge can
+  // be recorded before a specific offender is confirmed.
+  const tcaChargesResult = await db.query(
+    `SELECT tc.id, tc.charge_sequence, tc.tca_code, tc.charge_description, tc.charge_classification,
+            tc.offender_incident_person_id,
+            op.first_name AS offender_first_name, op.last_name AS offender_last_name
+       FROM incident_tca_charges tc
+       LEFT JOIN incident_persons oip ON oip.id = tc.offender_incident_person_id
+       LEFT JOIN master_persons op ON op.id = oip.person_id
+      WHERE tc.incident_id = $1
+      ORDER BY tc.charge_sequence`,
+    [params.id]
+  );
+
   res.status(200).json({
     ...incident,
     offenses: offensesResult.rows,
     persons: personsResult.rows,
     victim_offender_relationships: relationshipsResult.rows,
     property: propertyResult.rows,
+    tca_charges: tcaChargesResult.rows,
     narratives: narrativesResult.rows,
   });
 });
