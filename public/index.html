@@ -719,6 +719,47 @@
           <p class="ie-success success-text" hidden></p>
         </form>
       </div>
+
+      <div class="edit-section no-print">
+        <button class="btn btn-secondary edit-toggle-btn" id="incident-collections-edit-toggle">Edit Persons / Offenses / Charges / Property</button>
+        <form id="incident-collections-edit-form" hidden>
+          <p class="hint">This replaces the full list of offenses, persons, charges, and property below with whatever is shown here when saved -- add, remove, or correct anything, then save.</p>
+
+          <fieldset>
+            <legend>Offenses <span class="hint">(1-10 required)</span></legend>
+            <div id="iec-offense-rows"></div>
+            <button type="button" id="iec-add-offense" class="btn btn-secondary">+ Add Offense</button>
+          </fieldset>
+
+          <fieldset>
+            <legend>Persons Involved</legend>
+            <div id="iec-person-rows"></div>
+            <button type="button" id="iec-add-person" class="btn btn-secondary">+ Add Person</button>
+          </fieldset>
+
+          <fieldset>
+            <legend>TCA Charges <span class="hint">(optional)</span></legend>
+            <div id="iec-tca-charge-rows"></div>
+            <button type="button" id="iec-add-tca-charge" class="btn btn-secondary">+ Add TCA Charge</button>
+          </fieldset>
+
+          <fieldset>
+            <legend>Victim-Offender Relationships <span class="hint">(optional)</span></legend>
+            <div id="iec-relationship-rows"></div>
+            <button type="button" id="iec-add-relationship" class="btn btn-secondary">+ Add Relationship</button>
+          </fieldset>
+
+          <fieldset>
+            <legend>Property <span class="hint">(optional)</span></legend>
+            <div id="iec-property-rows"></div>
+            <button type="button" id="iec-add-property" class="btn btn-secondary">+ Add Property</button>
+          </fieldset>
+
+          <button type="submit" class="btn btn-primary btn-block">Save Changes</button>
+          <p class="iec-error error-text" hidden></p>
+          <p class="iec-success success-text" hidden></p>
+        </form>
+      </div>
     </section>
   </template>
 

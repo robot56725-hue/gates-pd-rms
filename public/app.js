@@ -1561,8 +1561,15 @@ function makeRemovableRow(container, className, innerHtml) {
 // Last (Role)" live-updating option list, since both are recorded as a
 // 0-based index into the request's `persons` array -- see relationshipInput
 // Schema/tcaChargeInputSchema in src/validation/incidentSchema.js).
-function refreshRelationshipPersonSelects() {
-  const personRows = Array.from(document.querySelectorAll('#incident-person-rows .dyn-row'));
+// Parameterized (container ids default to the incident CREATE form's own
+// ids) so the exact same row-building/wiring logic is shared with the
+// incident-detail EDIT COLLECTIONS form (renderIncidentDetail's
+// wireIncidentCollectionsEdit) instead of a second, drifting copy of ~150
+// lines of field markup. Both forms reference persons by row position, so
+// each needs its own independently-scoped set of container ids -- never
+// mixed between the two forms on the same page.
+function refreshPersonReferenceSelects(personContainerId, relContainerId, tcaContainerId) {
+  const personRows = Array.from(document.querySelectorAll(`#${personContainerId} .dyn-row`));
   const optsHtml =
     '<option value="">-- select --</option>' +
     personRows
@@ -1576,7 +1583,7 @@ function refreshRelationshipPersonSelects() {
       .join('');
   document
     .querySelectorAll(
-      '#incident-relationship-rows .rel-victim, #incident-relationship-rows .rel-offender, #incident-tca-charge-rows .tca-offender'
+      `#${relContainerId} .rel-victim, #${relContainerId} .rel-offender, #${tcaContainerId} .tca-offender`
     )
     .forEach((sel) => {
       const prev = sel.value;
@@ -1585,27 +1592,29 @@ function refreshRelationshipPersonSelects() {
     });
 }
 
-function addIncidentOffenseRow() {
-  const container = document.getElementById('incident-offense-rows');
-  makeRemovableRow(
-    container,
-    'offense-row',
-    `<label>Offense Code</label>
+// Back-compat wrapper for the incident CREATE form's own call sites below.
+function refreshRelationshipPersonSelects() {
+  refreshPersonReferenceSelects('incident-person-rows', 'incident-relationship-rows', 'incident-tca-charge-rows');
+}
+
+function offenseRowHtml() {
+  return `<label>Offense Code</label>
      <select class="off-code" required>${offenseOptionsHtml()}</select>
      <label>Attempted / Completed</label>
      <select class="off-status">
        <option value="Completed">Completed</option>
        <option value="Attempted">Attempted</option>
-     </select>`
-  );
+     </select>`;
 }
 
-function addIncidentPersonRow() {
-  const container = document.getElementById('incident-person-rows');
-  const row = makeRemovableRow(
-    container,
-    'person-row',
-    `<label>Role</label>
+function addIncidentOffenseRow(containerId = 'incident-offense-rows') {
+  const container = document.getElementById(containerId);
+  return makeRemovableRow(container, 'offense-row', offenseRowHtml());
+}
+
+function personRowHtml() {
+  return `<input type="hidden" class="p-person-id" />
+     <label>Role</label>
      <select class="p-role" required><option value="">-- select --</option>${optionsHtml(INCIDENT_PERSON_ROLES)}</select>
      <label>First Name</label>
      <input class="p-first-name" />
@@ -1639,53 +1648,56 @@ function addIncidentPersonRow() {
      <input class="p-dl-class" />
      <label class="checkbox-label"><input type="checkbox" class="p-is-cdl" /> Commercial Driver's License (CDL)</label>
      <label>Injury Type</label>
-     <select class="p-injury"><option value="">-- select --</option>${optionsHtml(INJURY_TYPES)}</select>`
-  );
-  row.querySelector('.p-role').addEventListener('change', refreshRelationshipPersonSelects);
-  row.querySelector('.p-first-name').addEventListener('input', refreshRelationshipPersonSelects);
-  row.querySelector('.p-last-name').addEventListener('input', refreshRelationshipPersonSelects);
-  row._onRemove = refreshRelationshipPersonSelects;
-  refreshRelationshipPersonSelects();
+     <select class="p-injury"><option value="">-- select --</option>${optionsHtml(INJURY_TYPES)}</select>`;
 }
 
-function addIncidentTcaChargeRow() {
-  const container = document.getElementById('incident-tca-charge-rows');
-  makeRemovableRow(
-    container,
-    'tca-charge-row',
-    `<label>TCA Code</label>
+function addIncidentPersonRow(containerId = 'incident-person-rows', refreshFn = refreshRelationshipPersonSelects) {
+  const container = document.getElementById(containerId);
+  const row = makeRemovableRow(container, 'person-row', personRowHtml());
+  row.querySelector('.p-role').addEventListener('change', refreshFn);
+  row.querySelector('.p-first-name').addEventListener('input', refreshFn);
+  row.querySelector('.p-last-name').addEventListener('input', refreshFn);
+  row._onRemove = refreshFn;
+  refreshFn();
+  return row;
+}
+
+function tcaChargeRowHtml() {
+  return `<label>TCA Code</label>
      <input class="tca-code" placeholder="e.g. 39-13-101" required />
      <label>Charge Description</label>
      <input class="tca-description" required />
      <label>Classification <span class="hint">(optional)</span></label>
      <input class="tca-classification" placeholder="e.g. Class A Misdemeanor" />
      <label>Offender <span class="hint">(optional)</span></label>
-     <select class="tca-offender"><option value="">-- select --</option></select>`
-  );
-  refreshRelationshipPersonSelects();
+     <select class="tca-offender"><option value="">-- select --</option></select>`;
 }
 
-function addIncidentRelationshipRow() {
-  const container = document.getElementById('incident-relationship-rows');
-  makeRemovableRow(
-    container,
-    'relationship-row',
-    `<label>Victim</label>
+function addIncidentTcaChargeRow(containerId = 'incident-tca-charge-rows', refreshFn = refreshRelationshipPersonSelects) {
+  const container = document.getElementById(containerId);
+  const row = makeRemovableRow(container, 'tca-charge-row', tcaChargeRowHtml());
+  refreshFn();
+  return row;
+}
+
+function relationshipRowHtml() {
+  return `<label>Victim</label>
      <select class="rel-victim" required></select>
      <label>Offender</label>
      <select class="rel-offender" required></select>
      <label>Relationship</label>
-     <select class="rel-type" required><option value="">-- select --</option>${optionsHtml(VOR_RELATIONSHIPS)}</select>`
-  );
-  refreshRelationshipPersonSelects();
+     <select class="rel-type" required><option value="">-- select --</option>${optionsHtml(VOR_RELATIONSHIPS)}</select>`;
 }
 
-function addIncidentPropertyRow() {
-  const container = document.getElementById('incident-property-rows');
-  makeRemovableRow(
-    container,
-    'property-row',
-    `<label>Loss Type</label>
+function addIncidentRelationshipRow(containerId = 'incident-relationship-rows', refreshFn = refreshRelationshipPersonSelects) {
+  const container = document.getElementById(containerId);
+  const row = makeRemovableRow(container, 'relationship-row', relationshipRowHtml());
+  refreshFn();
+  return row;
+}
+
+function propertyRowHtml() {
+  return `<label>Loss Type</label>
      <select class="prop-loss-type" required>${optionsHtml(PROPERTY_LOSS_TYPES)}</select>
      <label>Category</label>
      <select class="prop-category" required>${optionsHtml(PROPERTY_CATEGORIES)}</select>
@@ -1694,8 +1706,97 @@ function addIncidentPropertyRow() {
      <label>Value ($)</label>
      <input class="prop-value" type="number" step="0.01" min="0" />
      <label>Date Recovered</label>
-     <input class="prop-date-recovered" type="date" />`
-  );
+     <input class="prop-date-recovered" type="date" />`;
+}
+
+function addIncidentPropertyRow(containerId = 'incident-property-rows') {
+  const container = document.getElementById(containerId);
+  return makeRemovableRow(container, 'property-row', propertyRowHtml());
+}
+
+// Reads the persons rows out of `containerId` into a `persons` array plus a
+// rowId->index map (relationships/tca_charges below need the map to resolve
+// their own victim/offender selects, which store a row id, into the
+// position-based index the API expects). Shared by the incident CREATE
+// form and the EDIT COLLECTIONS form.
+function collectIncidentPersons(containerId) {
+  const personRows = Array.from(document.querySelectorAll(`#${containerId} .dyn-row`));
+  const personIndexByRowId = {};
+  const persons = personRows.map((row, idx) => {
+    personIndexByRowId[row.dataset.rowId] = idx;
+    const q = (sel) => row.querySelector(sel).value.trim();
+    const person = { role: q('.p-role') };
+    // Carried forward only by the EDIT COLLECTIONS form (populateIncident
+    // PersonRow sets this hidden field; the CREATE form's rows never have
+    // one) -- when present, the server applies any fields below as a
+    // correction to that existing master_persons row instead of creating a
+    // new one (see applyPersonFieldCorrections in incidents.controller.js).
+    if (q('.p-person-id')) person.person_id = q('.p-person-id');
+    if (q('.p-first-name')) person.first_name = q('.p-first-name');
+    if (q('.p-last-name')) person.last_name = q('.p-last-name');
+    if (q('.p-dob')) person.dob = q('.p-dob');
+    if (q('.p-sex')) person.sex = q('.p-sex');
+    if (q('.p-race')) person.race = q('.p-race');
+    if (q('.p-height')) person.height_inches = Number(q('.p-height'));
+    if (q('.p-weight')) person.weight_lbs = Number(q('.p-weight'));
+    if (q('.p-eye-color')) person.eye_color = q('.p-eye-color');
+    if (q('.p-hair-color')) person.hair_color = q('.p-hair-color');
+    if (q('.p-ssn')) person.ssn = q('.p-ssn');
+    if (q('.p-phone')) person.phone = q('.p-phone');
+    if (q('.p-address')) person.address = q('.p-address');
+    if (q('.p-dl-num')) person.drivers_license_num = q('.p-dl-num');
+    if (q('.p-dl-state')) person.dl_state = q('.p-dl-state').toUpperCase();
+    if (q('.p-dl-class')) person.dl_class = q('.p-dl-class');
+    person.is_cdl = row.querySelector('.p-is-cdl').checked;
+    if (q('.p-injury')) person.injury_type = q('.p-injury');
+    return person;
+  });
+  return { persons, personIndexByRowId };
+}
+
+function collectIncidentTcaCharges(containerId, personIndexByRowId) {
+  return Array.from(document.querySelectorAll(`#${containerId} .dyn-row`)).map((row) => {
+    const q = (sel) => row.querySelector(sel).value.trim();
+    const charge = {
+      tca_code: q('.tca-code'),
+      charge_description: q('.tca-description'),
+    };
+    if (q('.tca-classification')) charge.charge_classification = q('.tca-classification');
+    const offenderRowId = row.querySelector('.tca-offender').value;
+    if (offenderRowId && personIndexByRowId[offenderRowId] !== undefined) {
+      charge.offender_index = personIndexByRowId[offenderRowId];
+    }
+    return charge;
+  });
+}
+
+function collectIncidentOffenses(containerId) {
+  return Array.from(document.querySelectorAll(`#${containerId} .dyn-row`)).map((row) => ({
+    tibrs_offense_code: row.querySelector('.off-code').value,
+    attempted_completed: row.querySelector('.off-status').value,
+  }));
+}
+
+function collectIncidentRelationships(containerId, personIndexByRowId) {
+  return Array.from(document.querySelectorAll(`#${containerId} .dyn-row`)).map((row) => ({
+    victim_index: personIndexByRowId[row.querySelector('.rel-victim').value],
+    offender_index: personIndexByRowId[row.querySelector('.rel-offender').value],
+    relationship: row.querySelector('.rel-type').value,
+  }));
+}
+
+function collectIncidentProperty(containerId) {
+  return Array.from(document.querySelectorAll(`#${containerId} .dyn-row`)).map((row) => {
+    const q = (sel) => row.querySelector(sel).value.trim();
+    const item = {
+      property_loss_type: q('.prop-loss-type'),
+      property_category: q('.prop-category'),
+      property_description: q('.prop-description'),
+    };
+    if (q('.prop-value') !== '') item.value_amount = Number(q('.prop-value'));
+    if (q('.prop-date-recovered')) item.date_recovered = q('.prop-date-recovered');
+    return item;
+  });
 }
 
 function renderIncidents() {
@@ -1731,68 +1832,11 @@ function renderIncidents() {
 
     const val = (id) => document.getElementById(id).value.trim();
 
-    const personRows = Array.from(document.querySelectorAll('#incident-person-rows .dyn-row'));
-    const personIndexByRowId = {};
-    const persons = personRows.map((row, idx) => {
-      personIndexByRowId[row.dataset.rowId] = idx;
-      const q = (sel) => row.querySelector(sel).value.trim();
-      const person = { role: q('.p-role') };
-      if (q('.p-first-name')) person.first_name = q('.p-first-name');
-      if (q('.p-last-name')) person.last_name = q('.p-last-name');
-      if (q('.p-dob')) person.dob = q('.p-dob');
-      if (q('.p-sex')) person.sex = q('.p-sex');
-      if (q('.p-race')) person.race = q('.p-race');
-      if (q('.p-height')) person.height_inches = Number(q('.p-height'));
-      if (q('.p-weight')) person.weight_lbs = Number(q('.p-weight'));
-      if (q('.p-eye-color')) person.eye_color = q('.p-eye-color');
-      if (q('.p-hair-color')) person.hair_color = q('.p-hair-color');
-      if (q('.p-ssn')) person.ssn = q('.p-ssn');
-      if (q('.p-phone')) person.phone = q('.p-phone');
-      if (q('.p-address')) person.address = q('.p-address');
-      if (q('.p-dl-num')) person.drivers_license_num = q('.p-dl-num');
-      if (q('.p-dl-state')) person.dl_state = q('.p-dl-state').toUpperCase();
-      if (q('.p-dl-class')) person.dl_class = q('.p-dl-class');
-      person.is_cdl = row.querySelector('.p-is-cdl').checked;
-      if (q('.p-injury')) person.injury_type = q('.p-injury');
-      return person;
-    });
-
-    const tcaCharges = Array.from(document.querySelectorAll('#incident-tca-charge-rows .dyn-row')).map((row) => {
-      const q = (sel) => row.querySelector(sel).value.trim();
-      const charge = {
-        tca_code: q('.tca-code'),
-        charge_description: q('.tca-description'),
-      };
-      if (q('.tca-classification')) charge.charge_classification = q('.tca-classification');
-      const offenderRowId = row.querySelector('.tca-offender').value;
-      if (offenderRowId && personIndexByRowId[offenderRowId] !== undefined) {
-        charge.offender_index = personIndexByRowId[offenderRowId];
-      }
-      return charge;
-    });
-
-    const offenses = Array.from(document.querySelectorAll('#incident-offense-rows .dyn-row')).map((row) => ({
-      tibrs_offense_code: row.querySelector('.off-code').value,
-      attempted_completed: row.querySelector('.off-status').value,
-    }));
-
-    const relationships = Array.from(document.querySelectorAll('#incident-relationship-rows .dyn-row')).map((row) => ({
-      victim_index: personIndexByRowId[row.querySelector('.rel-victim').value],
-      offender_index: personIndexByRowId[row.querySelector('.rel-offender').value],
-      relationship: row.querySelector('.rel-type').value,
-    }));
-
-    const property = Array.from(document.querySelectorAll('#incident-property-rows .dyn-row')).map((row) => {
-      const q = (sel) => row.querySelector(sel).value.trim();
-      const item = {
-        property_loss_type: q('.prop-loss-type'),
-        property_category: q('.prop-category'),
-        property_description: q('.prop-description'),
-      };
-      if (q('.prop-value') !== '') item.value_amount = Number(q('.prop-value'));
-      if (q('.prop-date-recovered')) item.date_recovered = q('.prop-date-recovered');
-      return item;
-    });
+    const { persons, personIndexByRowId } = collectIncidentPersons('incident-person-rows');
+    const tcaCharges = collectIncidentTcaCharges('incident-tca-charge-rows', personIndexByRowId);
+    const offenses = collectIncidentOffenses('incident-offense-rows');
+    const relationships = collectIncidentRelationships('incident-relationship-rows', personIndexByRowId);
+    const property = collectIncidentProperty('incident-property-rows');
 
     const payload = {
       case_number: val('in-case-number'),
@@ -2084,14 +2128,151 @@ async function renderIncidentDetail(id) {
           errorEl.hidden = false;
         }
       };
+
+      wireIncidentCollectionsEdit(inc, id);
     } else {
       editToggle.hidden = true;
       editForm.hidden = true;
       addNarrativeSection.hidden = true;
+      document.getElementById('incident-collections-edit-toggle').hidden = true;
+      document.getElementById('incident-collections-edit-form').hidden = true;
     }
   } catch (err) {
     mainContent.querySelector('.i-case-number').textContent = err.message;
   }
+}
+
+/**
+ * Populates and wires the "Edit Persons / Offenses / Charges / Property"
+ * form on the incident detail view -- the fix for "there's no way to edit
+ * the persons/offenses on an existing incident." Every row is pre-filled
+ * from the current GET response and, on save, the ENTIRE current state of
+ * all five collections is resubmitted to PATCH /api/incidents/:id/collections,
+ * which replaces them wholesale (see updateIncidentCollections in
+ * incidents.controller.js for why this is a full-replace, not a granular
+ * add/remove API). Uses its own iec-* container ids throughout (via the
+ * containerId/refreshFn parameters every addIncident*Row function accepts)
+ * so this form's rows never collide with the CREATE form's identically-
+ * shaped but separately-scoped rows elsewhere on the page.
+ */
+function wireIncidentCollectionsEdit(inc, id) {
+  const toggle = document.getElementById('incident-collections-edit-toggle');
+  const form = document.getElementById('incident-collections-edit-form');
+  toggle.hidden = false;
+  wireEditToggle(toggle, form);
+
+  const refresh = () => refreshPersonReferenceSelects('iec-person-rows', 'iec-relationship-rows', 'iec-tca-charge-rows');
+
+  document.getElementById('iec-offense-rows').innerHTML = '';
+  document.getElementById('iec-person-rows').innerHTML = '';
+  document.getElementById('iec-tca-charge-rows').innerHTML = '';
+  document.getElementById('iec-relationship-rows').innerHTML = '';
+  document.getElementById('iec-property-rows').innerHTML = '';
+
+  document.getElementById('iec-add-offense').onclick = () => addIncidentOffenseRow('iec-offense-rows');
+  document.getElementById('iec-add-person').onclick = () => addIncidentPersonRow('iec-person-rows', refresh);
+  document.getElementById('iec-add-tca-charge').onclick = () => addIncidentTcaChargeRow('iec-tca-charge-rows', refresh);
+  document.getElementById('iec-add-relationship').onclick = () => addIncidentRelationshipRow('iec-relationship-rows', refresh);
+  document.getElementById('iec-add-property').onclick = () => addIncidentPropertyRow('iec-property-rows');
+
+  inc.offenses.forEach((o) => {
+    const row = addIncidentOffenseRow('iec-offense-rows');
+    row.querySelector('.off-code').value = o.tibrs_offense_code;
+    row.querySelector('.off-status').value = o.attempted_completed;
+  });
+  if (inc.offenses.length === 0) addIncidentOffenseRow('iec-offense-rows');
+
+  // incident_persons.id (the DB row this incident actually links to) ->
+  // this form's client-side row id, so relationships/tca_charges below --
+  // which the API returns keyed to that same incident_persons.id -- can
+  // find and pre-select the right row in their own dropdowns.
+  const personDbIdToRowId = {};
+  inc.persons.forEach((p) => {
+    const row = addIncidentPersonRow('iec-person-rows', refresh);
+    personDbIdToRowId[p.id] = row.dataset.rowId;
+    row.querySelector('.p-person-id').value = p.person_id || '';
+    row.querySelector('.p-role').value = p.role || '';
+    row.querySelector('.p-first-name').value = p.first_name || '';
+    row.querySelector('.p-last-name').value = p.last_name || '';
+    row.querySelector('.p-dob').value = p.dob ? String(p.dob).slice(0, 10) : '';
+    row.querySelector('.p-sex').value = p.sex || '';
+    row.querySelector('.p-race').value = p.race || '';
+    row.querySelector('.p-height').value = p.height_inches ?? '';
+    row.querySelector('.p-weight').value = p.weight_lbs ?? '';
+    row.querySelector('.p-eye-color').value = p.eye_color || '';
+    row.querySelector('.p-hair-color').value = p.hair_color || '';
+    // SSN is deliberately left blank here, not pre-filled with the
+    // decrypted value -- this form's own submit only ever touches
+    // ssn_encrypted when a value is actually retyped (see
+    // applyPersonFieldCorrections), so leaving it blank is exactly the
+    // "leave it as it is on file" no-op, and it avoids putting the
+    // decrypted SSN into a plain <input> a screen-share or shoulder-surf
+    // could pick up when no one asked to see it edited.
+    row.querySelector('.p-phone').value = p.phone || '';
+    row.querySelector('.p-address').value = p.address || '';
+    row.querySelector('.p-dl-num').value = p.drivers_license_num || '';
+    row.querySelector('.p-dl-state').value = p.dl_state || '';
+    row.querySelector('.p-dl-class').value = p.dl_class || '';
+    row.querySelector('.p-is-cdl').checked = !!p.is_cdl;
+    row.querySelector('.p-injury').value = p.injury_type || '';
+  });
+
+  inc.tca_charges.forEach((c) => {
+    const row = addIncidentTcaChargeRow('iec-tca-charge-rows', refresh);
+    row.querySelector('.tca-code').value = c.tca_code;
+    row.querySelector('.tca-description').value = c.charge_description;
+    row.querySelector('.tca-classification').value = c.charge_classification || '';
+    if (c.offender_incident_person_id && personDbIdToRowId[c.offender_incident_person_id]) {
+      row.querySelector('.tca-offender').value = personDbIdToRowId[c.offender_incident_person_id];
+    }
+  });
+
+  inc.victim_offender_relationships.forEach((r) => {
+    const row = addIncidentRelationshipRow('iec-relationship-rows', refresh);
+    if (personDbIdToRowId[r.victim_incident_person_id]) {
+      row.querySelector('.rel-victim').value = personDbIdToRowId[r.victim_incident_person_id];
+    }
+    if (personDbIdToRowId[r.offender_incident_person_id]) {
+      row.querySelector('.rel-offender').value = personDbIdToRowId[r.offender_incident_person_id];
+    }
+    row.querySelector('.rel-type').value = r.relationship;
+  });
+
+  inc.property.forEach((item) => {
+    const row = addIncidentPropertyRow('iec-property-rows');
+    row.querySelector('.prop-loss-type').value = item.property_loss_type;
+    row.querySelector('.prop-category').value = item.property_category;
+    row.querySelector('.prop-description').value = item.property_description;
+    row.querySelector('.prop-value').value = item.value_amount ?? '';
+    row.querySelector('.prop-date-recovered').value = item.date_recovered ? String(item.date_recovered).slice(0, 10) : '';
+  });
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const errorEl = mainContent.querySelector('.iec-error');
+    const successEl = mainContent.querySelector('.iec-success');
+    errorEl.hidden = true;
+    successEl.hidden = true;
+
+    const { persons, personIndexByRowId } = collectIncidentPersons('iec-person-rows');
+    const payload = {
+      offenses: collectIncidentOffenses('iec-offense-rows'),
+      persons,
+      tca_charges: collectIncidentTcaCharges('iec-tca-charge-rows', personIndexByRowId),
+      relationships: collectIncidentRelationships('iec-relationship-rows', personIndexByRowId),
+      property: collectIncidentProperty('iec-property-rows'),
+    };
+
+    try {
+      await apiFetch(`/api/incidents/${id}/collections`, { method: 'PATCH', body: JSON.stringify(payload) });
+      successEl.textContent = 'Offenses, persons, charges, and property updated.';
+      successEl.hidden = false;
+      setTimeout(() => renderIncidentDetail(id), 900);
+    } catch (err) {
+      errorEl.textContent = formErrorMessage(err);
+      errorEl.hidden = false;
+    }
+  };
 }
 
 // ------------------------------------------------------------------

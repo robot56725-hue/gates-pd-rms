@@ -8,6 +8,7 @@ const {
   listIncidents,
   getIncidentById,
   updateIncident,
+  updateIncidentCollections,
   approveIncident,
   addNarrative,
 } = require('../controllers/incidents.controller');
@@ -37,6 +38,19 @@ router.patch(
   withDbAudit('incidents'),
   requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
   updateIncident
+);
+
+// Full replace of the nested offenses/persons/relationships/property/
+// tca_charges collections -- see the note on updateIncidentCollections
+// (incidents.controller.js) for why this is a separate endpoint rather than
+// folded into PATCH /:id above. Same role set as creating/editing an
+// incident at all.
+router.patch(
+  '/:id/collections',
+  authenticate,
+  withDbAudit('incidents'),
+  requireRoles('Patrol_Officer', 'Supervisor', 'System_Admin'),
+  updateIncidentCollections
 );
 
 router.post(

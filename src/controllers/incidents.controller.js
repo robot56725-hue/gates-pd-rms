@@ -6,6 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const {
   incidentCreateSchema,
   incidentUpdateSchema,
+  incidentCollectionsUpdateSchema,
   narrativeCreateSchema,
   incidentListQuerySchema,
 } = require('../validation/incidentSchema');
@@ -30,16 +31,101 @@ function calculateAgeAsOf(dob, asOf) {
 }
 
 /**
+ * Applies whatever demographic/contact fields are present on `person` as a
+ * correction to an EXISTING master_persons row (COALESCE-style -- a field
+ * the request didn't include leaves the stored value untouched, same
+ * partial-update convention every other PATCH in this app already follows,
+ * e.g. updateUser/updateIncident). Only called from the incident EDIT
+ * COLLECTIONS path (see insertIncidentPersons's allowFieldUpdates option) --
+ * deliberately NOT from createIncident or any other caller of
+ * findOrCreatePerson (citations, matters of record), whose "never overwrite
+ * an existing person's stored fields" dedup behavior (see
+ * src/services/personService.js) stays exactly as-is. This function exists
+ * because the edit form is explicitly the place an officer corrects what
+ * was captured about someone on THIS incident -- carrying person_id forward
+ * unchanged (the alternative) would silently discard those corrections,
+ * since referencing an existing person_id otherwise never touches their
+ * stored record at all.
+ *
+ * SSN is handled separately, in the caller, not here -- it needs
+ * encryption, and a blank SSN field on an edit form is never treated as
+ * "clear it" (this app never re-displays a plaintext SSN anywhere outside
+ * a single incident's own detail view, so a blank almost always just means
+ * "wasn't retyped," not "remove it").
+ */
+async function applyPersonFieldCorrections(db, personId, person) {
+  await db.query(
+    `UPDATE master_persons SET
+        first_name          = COALESCE($1, first_name),
+        last_name           = COALESCE($2, last_name),
+        dob                 = COALESCE($3, dob),
+        sex                 = COALESCE($4, sex),
+        race                = COALESCE($5, race),
+        height_inches       = COALESCE($6, height_inches),
+        weight_lbs          = COALESCE($7, weight_lbs),
+        eye_color           = COALESCE($8, eye_color),
+        hair_color          = COALESCE($9, hair_color),
+        phone               = COALESCE($10, phone),
+        address             = COALESCE($11, address),
+        drivers_license_num = COALESCE($12, drivers_license_num),
+        dl_state            = COALESCE($13, dl_state),
+        dl_class            = COALESCE($14, dl_class),
+        is_cdl              = COALESCE($15, is_cdl)
+      WHERE id = $16`,
+    [
+      person.first_name ? person.first_name.trim() : null,
+      person.last_name ? person.last_name.trim() : null,
+      person.dob || null,
+      person.sex || null,
+      person.race || null,
+      person.height_inches ?? null,
+      person.weight_lbs ?? null,
+      person.eye_color || null,
+      person.hair_color || null,
+      person.phone || null,
+      person.address || null,
+      person.drivers_license_num || null,
+      person.dl_state || null,
+      person.dl_class || null,
+      person.is_cdl ?? null,
+      personId,
+    ]
+  );
+
+  if (person.ssn) {
+    if (!env.ssnEncryptionKey) {
+      throw new AppError(
+        500,
+        'Server is not configured to store SSNs (missing SSN_ENCRYPTION_KEY); resubmit without an SSN or contact IT.'
+      );
+    }
+    const encrypted = await db.query(`SELECT encrypt_ssn($1, $2) AS ciphertext`, [
+      person.ssn.replace(/-/g, ''),
+      env.ssnEncryptionKey,
+    ]);
+    await db.query(`UPDATE master_persons SET ssn_encrypted = $1 WHERE id = $2`, [
+      encrypted.rows[0].ciphertext,
+      personId,
+    ]);
+  }
+}
+
+/**
  * Inserts one incident_persons row per entry in `persons`, resolving each to
  * a master_persons id -- either directly (`person_id`, e.g. selected from a
- * prior search) or via findOrCreatePerson (same dedupe-by-DL logic
- * citations.controller.js uses). Returns an array parallel to `persons`
- * giving each entry's resulting {id, role}, so relationship entries (which
- * reference persons by their position in the request) can be resolved
- * afterward without the client needing to know a not-yet-created person's
- * future database id.
+ * prior search, or carried forward by the incident EDIT COLLECTIONS form)
+ * or via findOrCreatePerson (same dedupe-by-DL logic citations.controller.js
+ * uses). Returns an array parallel to `persons` giving each entry's
+ * resulting {id, role}, so relationship entries (which reference persons by
+ * their position in the request) can be resolved afterward without the
+ * client needing to know a not-yet-created person's future database id.
+ *
+ * `allowFieldUpdates` (only ever true from updateIncidentCollections) makes
+ * a supplied person_id ALSO apply any fields present as a correction to
+ * that master_persons row -- see applyPersonFieldCorrections above for why
+ * this is scoped to just that one call site.
  */
-async function insertIncidentPersons(db, incidentId, persons) {
+async function insertIncidentPersons(db, incidentId, persons, { allowFieldUpdates = false } = {}) {
   const roleSequence = {};
   const incidentPersons = [];
 
@@ -49,6 +135,9 @@ async function insertIncidentPersons(db, incidentId, persons) {
       const existing = await db.query('SELECT id FROM master_persons WHERE id = $1', [personId]);
       if (!existing.rows[0]) {
         throw new AppError(422, `persons: person_id ${personId} does not exist.`);
+      }
+      if (allowFieldUpdates) {
+        await applyPersonFieldCorrections(db, personId, person);
       }
     } else {
       if (!person.first_name || !person.last_name) {
@@ -73,6 +162,124 @@ async function insertIncidentPersons(db, incidentId, persons) {
   }
 
   return incidentPersons;
+}
+
+/**
+ * Inserts every nested collection an incident carries -- offenses, persons
+ * (via insertIncidentPersons), victim-offender relationships, property, and
+ * TCA charges -- from a payload shaped like incidentCreateSchema's nested
+ * fields. Shared by createIncident (a brand new incident) and
+ * updateIncidentCollections (a full replace of an existing one's nested
+ * data, see below) so the exact same bounds/role validation and insert
+ * order governs both call sites rather than two copies quietly drifting
+ * apart. Returns the counts createIncident's response has always reported.
+ *
+ * `allowPersonFieldUpdates` is passed straight through to
+ * insertIncidentPersons -- true only from updateIncidentCollections, see
+ * applyPersonFieldCorrections for why.
+ */
+async function insertIncidentNestedCollections(db, incidentId, payload, { allowPersonFieldUpdates = false } = {}) {
+  // Offense sequence is assigned by array position (1-based) -- the order
+  // the officer entered them in. A bad tibrs_offense_code surfaces as a
+  // clean 409 via the FK constraint + the shared PG_ERROR_MAP in
+  // middleware/errorHandler.js, not a raw SQL error.
+  for (let i = 0; i < payload.offenses.length; i++) {
+    const offense = payload.offenses[i];
+    await db.query(
+      `INSERT INTO incident_offenses (incident_id, offense_sequence, tibrs_offense_code, attempted_completed)
+       VALUES ($1, $2, $3, $4)`,
+      [incidentId, i + 1, offense.tibrs_offense_code, offense.attempted_completed]
+    );
+  }
+
+  const incidentPersons = await insertIncidentPersons(db, incidentId, payload.persons, {
+    allowFieldUpdates: allowPersonFieldUpdates,
+  });
+
+  // Relationships reference persons by their position in the request's
+  // `persons` array. Pre-validate bounds/roles here so a client mistake
+  // comes back as a clean 422 instead of tripping the DB trigger backstop
+  // (see db/migrations/005_add_tibrs_incident_module.sql) -- that trigger
+  // exists as defense-in-depth against a bug in THIS code, not as the
+  // primary validation path.
+  for (const rel of payload.relationships) {
+    const victim = incidentPersons[rel.victim_index];
+    const offender = incidentPersons[rel.offender_index];
+    if (!victim || victim.role !== 'Victim') {
+      throw new AppError(
+        422,
+        `relationships: victim_index ${rel.victim_index} does not refer to a person with role Victim.`
+      );
+    }
+    if (!offender || offender.role !== 'Offender') {
+      throw new AppError(
+        422,
+        `relationships: offender_index ${rel.offender_index} does not refer to a person with role Offender.`
+      );
+    }
+    await db.query(
+      `INSERT INTO incident_victim_offender_relationships
+          (incident_id, victim_incident_person_id, offender_incident_person_id, relationship)
+       VALUES ($1, $2, $3, $4)`,
+      [incidentId, victim.id, offender.id, rel.relationship]
+    );
+  }
+
+  for (const item of payload.property) {
+    await db.query(
+      `INSERT INTO incident_property
+          (incident_id, property_loss_type, property_category, property_description, value_amount, date_recovered)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        incidentId,
+        item.property_loss_type,
+        item.property_category,
+        item.property_description.trim(),
+        item.value_amount ?? null,
+        item.date_recovered ?? null,
+      ]
+    );
+  }
+
+  // tca_charges' offender_index, like relationships' victim_index/
+  // offender_index above, is a position into THIS request's `persons` array
+  // -- same bounds/role pre-check for the same reason (a clean 422 instead
+  // of tripping db/migrations/013_add_incident_tca_charges.sql's trigger
+  // backstop).
+  for (let i = 0; i < payload.tca_charges.length; i++) {
+    const charge = payload.tca_charges[i];
+    let offenderIncidentPersonId = null;
+    if (charge.offender_index !== undefined) {
+      const offender = incidentPersons[charge.offender_index];
+      if (!offender || offender.role !== 'Offender') {
+        throw new AppError(
+          422,
+          `tca_charges: offender_index ${charge.offender_index} does not refer to a person with role Offender.`
+        );
+      }
+      offenderIncidentPersonId = offender.id;
+    }
+    await db.query(
+      `INSERT INTO incident_tca_charges
+          (incident_id, charge_sequence, tca_code, charge_description, charge_classification, offender_incident_person_id)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        incidentId,
+        i + 1,
+        charge.tca_code.trim(),
+        charge.charge_description.trim(),
+        charge.charge_classification ? charge.charge_classification.trim() : null,
+        offenderIncidentPersonId,
+      ]
+    );
+  }
+
+  return {
+    offense_count: payload.offenses.length,
+    person_count: payload.persons.length,
+    property_count: payload.property.length,
+    tca_charge_count: payload.tca_charges.length,
+  };
 }
 
 /**
@@ -124,98 +331,7 @@ const createIncident = asyncHandler(async (req, res) => {
   );
   const incident = incidentResult.rows[0];
 
-  // Offense sequence is assigned by array position (1-based) -- the order
-  // the officer entered them in. A bad tibrs_offense_code surfaces as a
-  // clean 409 via the FK constraint + the shared PG_ERROR_MAP in
-  // middleware/errorHandler.js, not a raw SQL error.
-  for (let i = 0; i < payload.offenses.length; i++) {
-    const offense = payload.offenses[i];
-    await db.query(
-      `INSERT INTO incident_offenses (incident_id, offense_sequence, tibrs_offense_code, attempted_completed)
-       VALUES ($1, $2, $3, $4)`,
-      [incident.id, i + 1, offense.tibrs_offense_code, offense.attempted_completed]
-    );
-  }
-
-  const incidentPersons = await insertIncidentPersons(db, incident.id, payload.persons);
-
-  // Relationships reference persons by their position in the request's
-  // `persons` array. Pre-validate bounds/roles here so a client mistake
-  // comes back as a clean 422 instead of tripping the DB trigger backstop
-  // (see db/migrations/005_add_tibrs_incident_module.sql) -- that trigger
-  // exists as defense-in-depth against a bug in THIS code, not as the
-  // primary validation path.
-  for (const rel of payload.relationships) {
-    const victim = incidentPersons[rel.victim_index];
-    const offender = incidentPersons[rel.offender_index];
-    if (!victim || victim.role !== 'Victim') {
-      throw new AppError(
-        422,
-        `relationships: victim_index ${rel.victim_index} does not refer to a person with role Victim.`
-      );
-    }
-    if (!offender || offender.role !== 'Offender') {
-      throw new AppError(
-        422,
-        `relationships: offender_index ${rel.offender_index} does not refer to a person with role Offender.`
-      );
-    }
-    await db.query(
-      `INSERT INTO incident_victim_offender_relationships
-          (incident_id, victim_incident_person_id, offender_incident_person_id, relationship)
-       VALUES ($1, $2, $3, $4)`,
-      [incident.id, victim.id, offender.id, rel.relationship]
-    );
-  }
-
-  for (const item of payload.property) {
-    await db.query(
-      `INSERT INTO incident_property
-          (incident_id, property_loss_type, property_category, property_description, value_amount, date_recovered)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        incident.id,
-        item.property_loss_type,
-        item.property_category,
-        item.property_description.trim(),
-        item.value_amount ?? null,
-        item.date_recovered ?? null,
-      ]
-    );
-  }
-
-  // tca_charges' offender_index, like relationships' victim_index/
-  // offender_index above, is a position into THIS request's `persons` array
-  // -- same bounds/role pre-check for the same reason (a clean 422 instead
-  // of tripping db/migrations/013_add_incident_tca_charges.sql's trigger
-  // backstop).
-  for (let i = 0; i < payload.tca_charges.length; i++) {
-    const charge = payload.tca_charges[i];
-    let offenderIncidentPersonId = null;
-    if (charge.offender_index !== undefined) {
-      const offender = incidentPersons[charge.offender_index];
-      if (!offender || offender.role !== 'Offender') {
-        throw new AppError(
-          422,
-          `tca_charges: offender_index ${charge.offender_index} does not refer to a person with role Offender.`
-        );
-      }
-      offenderIncidentPersonId = offender.id;
-    }
-    await db.query(
-      `INSERT INTO incident_tca_charges
-          (incident_id, charge_sequence, tca_code, charge_description, charge_classification, offender_incident_person_id)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        incident.id,
-        i + 1,
-        charge.tca_code.trim(),
-        charge.charge_description.trim(),
-        charge.charge_classification ? charge.charge_classification.trim() : null,
-        offenderIncidentPersonId,
-      ]
-    );
-  }
+  const nestedCounts = await insertIncidentNestedCollections(db, incident.id, payload);
 
   if (payload.narrative) {
     await db.query(
@@ -228,10 +344,7 @@ const createIncident = asyncHandler(async (req, res) => {
   res.status(201).json({
     id: incident.id,
     case_number: incident.case_number,
-    offense_count: payload.offenses.length,
-    person_count: payload.persons.length,
-    property_count: payload.property.length,
-    tca_charge_count: payload.tca_charges.length,
+    ...nestedCounts,
     outcome: 'created',
   });
 });
@@ -471,6 +584,61 @@ const updateIncident = asyncHandler(async (req, res) => {
   res.status(200).json({ ...result.rows[0], outcome: 'updated' });
 });
 
+/**
+ * PATCH /api/incidents/:id/collections
+ *
+ * Full replace of every nested collection an incident carries -- offenses,
+ * persons, victim-offender relationships, property, and TCA charges -- in
+ * one transaction. This is the fix for "there's no way to edit the persons/
+ * offenses/etc. on an existing incident": updateIncident above only ever
+ * touched fields living directly on the incidents row (occurrence date,
+ * location, status/clearance), by deliberate design (see the note on
+ * incidentUpdateSchema) -- editing what actually happened during the
+ * incident needed its own endpoint.
+ *
+ * Existing rows are deleted first, children before incident_persons itself
+ * (incident_persons is referenced by incident_victim_offender_relationships
+ * ON DELETE CASCADE and by incident_tca_charges ON DELETE SET NULL --
+ * deleted explicitly here, in dependency order, rather than relying on
+ * those cascade/set-null actions to clean up rows this same request is
+ * about to replace anyway), then insertIncidentNestedCollections rebuilds
+ * everything from the resubmitted payload exactly as createIncident does
+ * for a brand new incident. master_persons rows themselves are never
+ * touched -- only the incident_persons link rows are replaced, so deleting
+ * them cannot delete or corrupt a person record referenced elsewhere (other
+ * incidents, citations, matters of record).
+ */
+const updateIncidentCollections = asyncHandler(async (req, res) => {
+  const { error: paramError, value: params } = idParamSchema.validate(req.params);
+  if (paramError) throw Object.assign(paramError, { isJoi: true });
+
+  const { error, value: payload } = incidentCollectionsUpdateSchema.validate(req.body);
+  if (error) throw Object.assign(error, { isJoi: true });
+
+  const db = req.db;
+
+  const existing = await db.query('SELECT id FROM incidents WHERE id = $1', [params.id]);
+  if (!existing.rows[0]) {
+    throw new AppError(404, 'Incident not found.');
+  }
+
+  await db.query('DELETE FROM incident_tca_charges WHERE incident_id = $1', [params.id]);
+  await db.query('DELETE FROM incident_victim_offender_relationships WHERE incident_id = $1', [
+    params.id,
+  ]);
+  await db.query('DELETE FROM incident_property WHERE incident_id = $1', [params.id]);
+  await db.query('DELETE FROM incident_persons WHERE incident_id = $1', [params.id]);
+  await db.query('DELETE FROM incident_offenses WHERE incident_id = $1', [params.id]);
+
+  const nestedCounts = await insertIncidentNestedCollections(db, params.id, payload, {
+    allowPersonFieldUpdates: true,
+  });
+
+  await db.query('UPDATE incidents SET updated_at = now() WHERE id = $1', [params.id]);
+
+  res.status(200).json({ id: params.id, ...nestedCounts, outcome: 'updated' });
+});
+
 const approveIncident = makeApprovalHandler('incidents', 'Incident not found.');
 
 /**
@@ -516,6 +684,7 @@ module.exports = {
   listIncidents,
   getIncidentById,
   updateIncident,
+  updateIncidentCollections,
   approveIncident,
   addNarrative,
 };

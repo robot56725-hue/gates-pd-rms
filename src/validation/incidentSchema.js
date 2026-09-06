@@ -261,9 +261,12 @@ const incidentCreateSchema = Joi.object({
   .options({ abortEarly: false, presence: 'optional' });
 
 // Deliberately scoped to fields that live directly on `incidents` --
-// re-working the nested offenses/persons/relationships/property collections
-// is a rarer, higher-stakes correction handled separately, not through this
-// endpoint (mirrors citationUpdateSchema's same scoping decision).
+// re-working the nested offenses/persons/relationships/property/tca_charges
+// collections is a rarer, higher-stakes correction, handled separately via
+// PATCH /api/incidents/:id/collections (see incidentCollectionsUpdateSchema
+// below and updateIncidentCollections in incidents.controller.js), not
+// through this endpoint (mirrors citationUpdateSchema's same scoping
+// decision).
 const incidentUpdateSchema = Joi.object({
   status: Joi.string()
     .valid(...INCIDENT_STATUSES)
@@ -290,6 +293,27 @@ const narrativeCreateSchema = Joi.object({
   narrative_text: Joi.string().trim().min(1).max(10000).required(),
 });
 
+// PATCH /api/incidents/:id/collections -- a full replace of every nested
+// collection an incident carries, in one atomic request. Deliberately the
+// same shape as incidentCreateSchema's nested fields (offenses still
+// min(1).required(), since a TIBRS incident can't exist without at least
+// one real offense code, even on a correction) rather than a granular
+// add-one/remove-one API: the client always fetches the current full
+// detail (GET /api/incidents/:id already returns every one of these
+// arrays), lets the user edit it, and resubmits the complete picture,
+// which the controller then swaps in wholesale. This was chosen over a
+// piecemeal PATCH because relationships/tca_charges reference persons by
+// position -- letting only `persons` change while relationships/tca_charges
+// stayed keyed to stale positions/ids would either dangle or require this
+// same full-picture resend anyway.
+const incidentCollectionsUpdateSchema = Joi.object({
+  offenses: Joi.array().items(offenseInputSchema).min(1).max(10).required(),
+  persons: Joi.array().items(incidentPersonSchema).max(50).default([]),
+  relationships: Joi.array().items(relationshipInputSchema).default([]),
+  property: Joi.array().items(propertyInputSchema).default([]),
+  tca_charges: Joi.array().items(tcaChargeInputSchema).max(20).default([]),
+}).options({ abortEarly: false });
+
 const incidentListQuerySchema = Joi.object({
   q: Joi.string().trim().max(120).allow('', null).optional(),
   status: Joi.string()
@@ -303,6 +327,7 @@ const incidentListQuerySchema = Joi.object({
 module.exports = {
   incidentCreateSchema,
   incidentUpdateSchema,
+  incidentCollectionsUpdateSchema,
   narrativeCreateSchema,
   incidentListQuerySchema,
   LOCATION_TYPES,
