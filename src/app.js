@@ -28,6 +28,7 @@ const paymentsRoutes = require('./routes/payments.routes');
 const fundCategoriesRoutes = require('./routes/fundCategories.routes');
 const warrantsRoutes = require('./routes/warrants.routes');
 const reportsRoutes = require('./routes/reports.routes');
+const photosRoutes = require('./routes/photos.routes');
 
 const app = express();
 
@@ -44,6 +45,17 @@ app.use(
     allowedHeaders: ['Authorization', 'Content-Type'],
   })
 );
+// Photos arrive as base64 JSON (see src/validation/photoSchema.js for why
+// -- no multipart-parsing dependency anywhere else in this app), which
+// inflates an 8 MB image (case_photos' own size cap,
+// db/migrations/014_add_case_photos.sql) to roughly 11 MB of base64 text
+// plus a little JSON overhead. That needs a body-size limit well above the
+// 100kb every other route gets. Scoping the larger limit to /api/photos
+// specifically -- mounted BEFORE the general-purpose parser below -- means
+// only this one route pays for a bigger allowed payload; body-parser skips
+// re-parsing a request whose body a prior middleware already consumed, so
+// the 100kb parser below is a no-op for anything that matched here.
+app.use('/api/photos', express.json({ limit: '12mb' }));
 // Cap body size: input sanitization starts with not accepting an
 // unbounded payload from an unauthenticated (pre-JWT-check) client.
 app.use(express.json({ limit: '100kb' }));
@@ -77,6 +89,7 @@ app.use('/api/payments', paymentsRoutes);
 app.use('/api/fund-categories', fundCategoriesRoutes);
 app.use('/api/warrants', warrantsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/photos', photosRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
