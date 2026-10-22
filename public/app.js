@@ -1813,11 +1813,19 @@ function renderIncidents() {
   document.getElementById('incident-relationship-rows').innerHTML = '';
   document.getElementById('incident-property-rows').innerHTML = '';
 
-  document.getElementById('incident-add-offense').addEventListener('click', addIncidentOffenseRow);
-  document.getElementById('incident-add-person').addEventListener('click', addIncidentPersonRow);
-  document.getElementById('incident-add-tca-charge').addEventListener('click', addIncidentTcaChargeRow);
-  document.getElementById('incident-add-relationship').addEventListener('click', addIncidentRelationshipRow);
-  document.getElementById('incident-add-property').addEventListener('click', addIncidentPropertyRow);
+  // NOTE: these must be wrapped in arrow functions, not passed as bare
+  // function references. addEventListener('click', fn) calls fn(event) --
+  // the DOM click Event becomes the row-builder's first argument instead
+  // of nothing, so its `containerId = 'incident-...-rows'` default never
+  // kicks in (a default parameter only applies when the argument is
+  // literally undefined) and document.getElementById(event) returns null,
+  // throwing before the row is ever created. Wrapping in () => fn() drops
+  // the event entirely so the defaults apply as intended.
+  document.getElementById('incident-add-offense').addEventListener('click', () => addIncidentOffenseRow());
+  document.getElementById('incident-add-person').addEventListener('click', () => addIncidentPersonRow());
+  document.getElementById('incident-add-tca-charge').addEventListener('click', () => addIncidentTcaChargeRow());
+  document.getElementById('incident-add-relationship').addEventListener('click', () => addIncidentRelationshipRow());
+  document.getElementById('incident-add-property').addEventListener('click', () => addIncidentPropertyRow());
 
   addIncidentOffenseRow();
 
