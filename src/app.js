@@ -36,7 +36,23 @@ if (env.trustProxy) {
   app.set('trust proxy', 1);
 }
 
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        // Photo thumbnails (case_photos) are fetched with a JWT bearer
+        // token -- a plain <img src> can't carry that header -- and
+        // rendered via URL.createObjectURL(blob) instead (see
+        // fetchPhotoBlob in public/app.js). Helmet's default img-src
+        // ('self' data:) has no blob: scheme, which silently blocks
+        // every photo thumbnail with no console error, since CSP
+        // image-blocked violations don't surface as a script error.
+        'img-src': ["'self'", 'data:', 'blob:'],
+      },
+    },
+  })
+);
 app.use(
   cors({
     origin: env.corsAllowedOrigins.length > 0 ? env.corsAllowedOrigins : false,
