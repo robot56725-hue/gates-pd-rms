@@ -193,6 +193,20 @@ legend {
   border-radius: 12px;
   font-size: 0.75rem;
 }
+/* Pending-sync count button in the topbar -- gold/amber rather than the
+   neutral .badge above specifically so it reads as "needs attention" (a
+   record waiting to leave this phone), not just informational like the
+   role badge next to it. */
+#pending-sync-badge {
+  background: var(--gold);
+  color: var(--navy-dark);
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+}
 
 #main-content {
   flex: 1;
@@ -344,7 +358,10 @@ legend {
   width: 100%;
   margin-bottom: 12px;
 }
-.dl-scan-modal {
+/* .app-modal/.app-modal-dialog: generic full-screen overlay dialog, shared
+   by the DL scanner and the pending-sync panel (and anything else later)
+   rather than duplicating this block per feature. */
+.dl-scan-modal, .app-modal {
   position: fixed;
   inset: 0;
   background: rgba(8, 27, 52, 0.92);
@@ -362,10 +379,10 @@ legend {
    no matter what the `hidden` attribute is set to. This selector's
    extra specificity (class + attribute) re-asserts `display: none`
    whenever JS sets `hidden` back on. */
-.dl-scan-modal[hidden] {
+.dl-scan-modal[hidden], .app-modal[hidden] {
   display: none;
 }
-.dl-scan-dialog {
+.dl-scan-dialog, .app-modal-dialog {
   background: var(--card-bg);
   border-radius: 12px;
   padding: 20px;
@@ -375,6 +392,9 @@ legend {
   overflow-y: auto;
   text-align: center;
 }
+.pending-sync-list { list-style: none; margin: 0 0 12px; padding: 0; text-align: left; }
+.pending-sync-list .result-item { margin-bottom: 8px; }
+.pending-sync-list .failed { color: var(--danger); }
 .dl-scan-video {
   display: block;
   width: 100%;

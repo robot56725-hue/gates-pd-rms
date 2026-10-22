@@ -8,10 +8,20 @@
  * http://localhost:3000 during development or the deployed HTTPS URL --
  * no CORS configuration needed for this page itself.
  *
- * Session token lives in sessionStorage (cleared when the tab/browser
- * closes) -- acceptable for a real deployed origin; this is NOT the
- * in-conversation preview restriction, this file only ever runs on the
- * app's own deployed domain.
+ * Session token lives in localStorage -- changed from sessionStorage
+ * (2026-10-22, offline data-entry feature) specifically so a signed-in
+ * session survives the phone backgrounding/killing the app process, which
+ * sessionStorage does not reliably survive on a phone (a tab-lifetime
+ * store, cleared when the browsing context is torn down -- which an OS
+ * killing a backgrounded PWA for memory does). The 12-hour token lifetime
+ * (src/controllers/auth.controller.js's ACCESS_TOKEN_TTL) is pointless for
+ * "stay logged in through a shift-long signal gap" if the token itself
+ * doesn't survive the app being closed and reopened, which is the normal
+ * way a phone treats a backgrounded web app. Same trade-off already made
+ * for the TTL change itself: a found/unlocked duty phone now stays signed
+ * in until the 12h token expiry or an explicit Log Out, not just until the
+ * tab closes -- the phone's own lock screen is the real defense during
+ * that window, same trust model as any other work app on a duty phone.
  */
 
 const TOKEN_KEY = 'gatespd_token';
@@ -22,25 +32,75 @@ const PROFILE_KEY = 'gatespd_profile';
 // ------------------------------------------------------------------
 
 function getToken() {
-  return sessionStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 function getProfile() {
   try {
-    return JSON.parse(sessionStorage.getItem(PROFILE_KEY) || 'null');
+    return JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null');
   } catch {
     return null;
   }
 }
 
 function setSession(token, profile) {
-  sessionStorage.setItem(TOKEN_KEY, token);
-  sessionStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
 }
 
 function clearSession() {
-  sessionStorage.removeItem(TOKEN_KEY);
-  sessionStorage.removeItem(PROFILE_KEY);
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(PROFILE_KEY);
+}
+
+/**
+ * Decodes (does NOT verify -- that's the server's job) the current JWT's
+ * payload so the app can read its own claims (exp, sub) locally, without a
+ * network round trip. Returns null if there's no token or it's malformed,
+ * rather than throwing, since callers run this on every nav.
+ */
+function decodeSessionTokenPayload() {
+  const token = getToken();
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    return JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The app has to tell a session has expired while it has no network to get
+ * a 401 from -- the whole point of the offline feature.
+ */
+function getSessionExpiryMs() {
+  const payload = decodeSessionTokenPayload();
+  return payload && typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+}
+
+/**
+ * The signed-in user's id (JWT `sub`), used to tag each offline-queued
+ * submission with who actually filled out the form -- see
+ * submitFormOrQueue/drainOfflineQueue's own comments on why a queued item
+ * must never sync under a *different* officer's session than the one who
+ * created it (a shift handoff on a shared/spare phone, a session expiring
+ * mid-gap and a different officer logging in before signal returns, etc.
+ * -- citations/incidents/etc. attribute authorship from whoever's token is
+ * active at the moment the server receives the request, not from the form
+ * itself).
+ */
+function getCurrentUserId() {
+  const payload = decodeSessionTokenPayload();
+  return payload ? payload.sub : null;
+}
+
+function isSessionExpired() {
+  const expiryMs = getSessionExpiryMs();
+  // No readable expiry at all (missing/malformed token) is treated as
+  // expired -- fail closed, not open.
+  return expiryMs === null || Date.now() >= expiryMs;
 }
 
 /**
@@ -95,6 +155,280 @@ async function apiFetch(path, options = {}) {
 
   return data;
 }
+
+// ------------------------------------------------------------------
+// Offline write queue -- true offline data entry for citations, incidents,
+// matters of record, and crash reports. NOT a general offline-everything
+// layer: only these four create forms queue, and only a brand-new record,
+// never an edit to an existing one (see claude/offline-design.md in the
+// project docs for the full design/rationale, including why edits are
+// deliberately out of scope). The backend side of this -- a client-supplied
+// `id` + `device_created_at` on each create payload, with the server
+// returning the existing record instead of erroring on a retried id -- was
+// already built into citations/incidents/mor/crashes controllers; this is
+// the client half that actually generates those ids and holds a payload
+// locally until it can reach the server.
+// ------------------------------------------------------------------
+
+const OFFLINE_DB_NAME = 'gatespd-offline';
+const OFFLINE_DB_VERSION = 1;
+const OFFLINE_STORE = 'pending_submissions';
+
+const OFFLINE_FORM_LABELS = {
+  citation: 'Citation',
+  incident: 'Incident report',
+  mor: 'Matter of record',
+  crash: 'Crash report',
+};
+
+function openOfflineDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(OFFLINE_STORE)) {
+        db.createObjectStore(OFFLINE_STORE, { keyPath: 'queueId' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbRequestToPromise(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function enqueueOfflineSubmission(entry) {
+  const db = await openOfflineDb();
+  const tx = db.transaction(OFFLINE_STORE, 'readwrite');
+  tx.objectStore(OFFLINE_STORE).add(entry);
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function listOfflineSubmissions() {
+  const db = await openOfflineDb();
+  const tx = db.transaction(OFFLINE_STORE, 'readonly');
+  const all = await idbRequestToPromise(tx.objectStore(OFFLINE_STORE).getAll());
+  return all.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+async function deleteOfflineSubmission(queueId) {
+  const db = await openOfflineDb();
+  const tx = db.transaction(OFFLINE_STORE, 'readwrite');
+  tx.objectStore(OFFLINE_STORE).delete(queueId);
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function updateOfflineSubmission(queueId, patch) {
+  const db = await openOfflineDb();
+  const tx = db.transaction(OFFLINE_STORE, 'readwrite');
+  const store = tx.objectStore(OFFLINE_STORE);
+  const existing = await idbRequestToPromise(store.get(queueId));
+  if (existing) store.put(Object.assign({}, existing, patch));
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function newClientRequestId() {
+  // Every browser this app targets (Safari 15.4+/Chrome 92+) has this.
+  return crypto.randomUUID();
+}
+
+/**
+ * Shared submit path for the four forms that support working with no
+ * signal. Always stamps the payload with a client-generated id +
+ * device_created_at -- online or offline -- so a retried sync is
+ * idempotent against the server's own existing dedupe check (see e.g.
+ * citations.controller.js's `if (payload.id)` handling) whether or not
+ * this particular submission ever actually got queued.
+ *
+ * Only an actual network failure gets queued here. A real 4xx/5xx
+ * response from the server (bad data, a conflict, an expired session)
+ * is NOT caught -- it's rethrown to the caller's own try/catch exactly
+ * as before this existed, so validation errors still show up normally.
+ */
+async function submitFormOrQueue(formType, endpoint, payload) {
+  if (isSessionExpired()) {
+    clearSession();
+    showLogin('Your session has expired. Please log in again before saving this.');
+    throw new Error('Session expired');
+  }
+
+  const stamped = Object.assign({}, payload, {
+    id: payload.id || newClientRequestId(),
+    device_created_at: payload.device_created_at || new Date().toISOString(),
+  });
+
+  const queueIt = async () => {
+    await enqueueOfflineSubmission({
+      queueId: newClientRequestId(),
+      formType,
+      endpoint,
+      payload: stamped,
+      createdAt: Date.now(),
+      status: 'pending',
+      attempts: 0,
+      lastError: null,
+      createdByUserId: getCurrentUserId(),
+    });
+    refreshPendingSyncBadge();
+    return { queued: true, recordId: stamped.id };
+  };
+
+  if (!navigator.onLine) {
+    return queueIt();
+  }
+
+  try {
+    const result = await apiFetch(endpoint, { method: 'POST', body: JSON.stringify(stamped) });
+    return { queued: false, result };
+  } catch (err) {
+    // err.status is only ever set by apiFetch's own res.ok branch below --
+    // a plain thrown TypeError out of fetch() itself (request never
+    // reached the server at all) has no .status, which is exactly the
+    // "genuinely offline" signal. The 401 branch above also throws a
+    // status-less Error, so it's explicitly excluded -- an expired session
+    // is a real problem to surface, not something to silently queue
+    // against a token that will never become valid again.
+    if (err.status === undefined && err.message !== 'Session expired') {
+      return queueIt();
+    }
+    throw err;
+  }
+}
+
+let offlineSyncInFlight = false;
+
+async function drainOfflineQueue() {
+  if (offlineSyncInFlight || !navigator.onLine || isSessionExpired()) return;
+  offlineSyncInFlight = true;
+  try {
+    const items = await listOfflineSubmissions();
+    const currentUserId = getCurrentUserId();
+    for (const item of items) {
+      if (item.status === 'failed') continue; // needs manual attention -- see renderPendingSyncPanel's Retry
+      // Never upload a record under a DIFFERENT officer's session than the
+      // one who actually filled out the form -- e.g. a shift handoff on a
+      // shared/spare phone, or a session expiring mid-gap and a different
+      // officer logging in before signal returns. Syncing it here would
+      // misattribute authorship (officer_id comes from the active
+      // session's token server-side, not from the queued payload).
+      if (item.createdByUserId && item.createdByUserId !== currentUserId) continue;
+      try {
+        await apiFetch(item.endpoint, { method: 'POST', body: JSON.stringify(item.payload) });
+        await deleteOfflineSubmission(item.queueId);
+      } catch (err) {
+        if (err.message === 'Session expired') break; // apiFetch already sent them to the login screen
+        if (err.status === undefined) break; // still offline -- stop here, keep order, retry next trigger
+        // A genuine server-side rejection on something already validated
+        // client-side once -- flag it rather than retrying it forever or
+        // silently dropping it.
+        await updateOfflineSubmission(item.queueId, {
+          status: 'failed',
+          lastError: err.message,
+          attempts: (item.attempts || 0) + 1,
+        });
+      }
+    }
+  } finally {
+    offlineSyncInFlight = false;
+    refreshPendingSyncBadge();
+  }
+}
+
+async function refreshPendingSyncBadge() {
+  const badge = document.getElementById('pending-sync-badge');
+  if (!badge) return; // not logged in yet -- topbar isn't in the DOM
+  const currentUserId = getCurrentUserId();
+  // Only count/show items the CURRENTLY signed-in officer created --
+  // something queued under a different account on this device is this
+  // officer's responsibility to notice (it's still listed in the panel),
+  // but surfacing it in this officer's own badge count would be
+  // confusing ("why do I have a pending upload I never made").
+  const mine = (await listOfflineSubmissions()).filter((i) => i.createdByUserId === currentUserId);
+  if (mine.length === 0) {
+    badge.hidden = true;
+    return;
+  }
+  const failedCount = mine.filter((i) => i.status === 'failed').length;
+  badge.textContent = failedCount > 0
+    ? `${mine.length} pending (${failedCount} need attention)`
+    : `${mine.length} pending upload${mine.length === 1 ? '' : 's'}`;
+  badge.hidden = false;
+}
+
+async function renderPendingSyncPanel() {
+  const listEl = document.getElementById('pending-sync-list');
+  const items = await listOfflineSubmissions();
+  if (items.length === 0) {
+    listEl.innerHTML = '<li class="hint">Nothing pending.</li>';
+    return;
+  }
+  const currentUserId = getCurrentUserId();
+  listEl.innerHTML = items
+    .map((item) => {
+      const label = OFFLINE_FORM_LABELS[item.formType] || item.formType;
+      const when = new Date(item.createdAt).toLocaleString();
+      const mine = item.createdByUserId === currentUserId;
+      if (!mine) {
+        return `<li class="result-item" data-queue-id="${item.queueId}">
+          <div class="r-title">${label} -- saved ${when}</div>
+          <div class="r-sub">Saved by a different login on this device -- sign in as that officer to upload it.</div>
+        </li>`;
+      }
+      if (item.status === 'failed') {
+        return `<li class="result-item failed" data-queue-id="${item.queueId}">
+          <div class="r-title">${label} -- saved ${when}</div>
+          <div class="r-sub">Didn't upload: ${escapeHtml(item.lastError || 'unknown error')}</div>
+          <button type="button" class="btn btn-secondary pending-retry-btn" data-queue-id="${item.queueId}">Retry</button>
+        </li>`;
+      }
+      return `<li class="result-item" data-queue-id="${item.queueId}">
+        <div class="r-title">${label} -- saved ${when}</div>
+        <div class="r-sub">Waiting for signal to upload.</div>
+      </li>`;
+    })
+    .join('');
+
+  listEl.querySelectorAll('.pending-retry-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await updateOfflineSubmission(btn.dataset.queueId, { status: 'pending', lastError: null });
+      await drainOfflineQueue();
+      await renderPendingSyncPanel();
+      refreshPendingSyncBadge();
+    });
+  });
+}
+
+document.getElementById('pending-sync-badge').addEventListener('click', async () => {
+  await renderPendingSyncPanel();
+  document.getElementById('pending-sync-modal').hidden = false;
+});
+document.getElementById('pending-sync-close-btn').addEventListener('click', () => {
+  document.getElementById('pending-sync-modal').hidden = true;
+});
+document.getElementById('pending-sync-now-btn').addEventListener('click', async () => {
+  await drainOfflineQueue();
+  await renderPendingSyncPanel();
+});
+
+window.addEventListener('online', drainOfflineQueue);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') drainOfflineQueue();
+});
+setInterval(drainOfflineQueue, 30 * 1000);
 
 // ------------------------------------------------------------------
 // View switching
@@ -161,6 +495,9 @@ function showApp() {
   // note in payments.routes.js), not at the tab-visibility level, since
   // Supervisor can still view dockets/judges/reminders here.
   document.getElementById('nav-court-admin').hidden = !hasAnyRole('Court_Clerk', 'Supervisor', 'System_Admin');
+
+  refreshPendingSyncBadge();
+  drainOfflineQueue();
 
   navigate('search');
 }
@@ -1189,11 +1526,10 @@ function renderIssueForm() {
     }
 
     try {
-      const result = await apiFetch('/api/citations', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      successEl.textContent = `Citation ${result.citation_number} submitted. Court filing deadline: ${fmtDate(result.court_filing_deadline)}.`;
+      const { queued, result } = await submitFormOrQueue('citation', '/api/citations', payload);
+      successEl.textContent = queued
+        ? `Citation ${payload.citation_number} saved on this device -- will upload automatically when you have signal.`
+        : `Citation ${result.citation_number} submitted. Court filing deadline: ${fmtDate(result.court_filing_deadline)}.`;
       successEl.hidden = false;
       form.reset();
       signaturePad.clear();
@@ -2502,8 +2838,10 @@ function renderIncidents() {
     if (val('in-narrative')) payload.narrative = val('in-narrative');
 
     try {
-      const result = await apiFetch('/api/incidents', { method: 'POST', body: JSON.stringify(payload) });
-      successEl.textContent = `Incident ${result.case_number} submitted (${result.offense_count} offense(s), ${result.person_count} person(s)).`;
+      const { queued, result } = await submitFormOrQueue('incident', '/api/incidents', payload);
+      successEl.textContent = queued
+        ? `Incident saved on this device (${payload.offenses.length} offense(s), ${payload.persons.length} person(s)) -- will upload automatically when you have signal.`
+        : `Incident ${result.case_number} submitted (${result.offense_count} offense(s), ${result.person_count} person(s)).`;
       successEl.hidden = false;
       // Reset the form in place rather than calling renderIncidents() again --
       // a full remount would wipe this success message before it's readable.
@@ -2999,8 +3337,10 @@ function renderMor() {
     }
 
     try {
-      const result = await apiFetch('/api/mor', { method: 'POST', body: JSON.stringify(payload) });
-      successEl.textContent = `Matter of record ${result.report_number} submitted (${result.person_count} person(s)).`;
+      const { queued, result } = await submitFormOrQueue('mor', '/api/mor', payload);
+      successEl.textContent = queued
+        ? `Matter of record ${payload.report_number} saved on this device (${payload.persons.length} person(s)) -- will upload automatically when you have signal.`
+        : `Matter of record ${result.report_number} submitted (${result.person_count} person(s)).`;
       successEl.hidden = false;
       // Reset in place rather than calling renderMor() again -- a full
       // remount would wipe this success message before it's readable, same
@@ -3335,8 +3675,10 @@ function renderCrashes() {
     if (val('cr-narrative')) payload.narrative = val('cr-narrative');
 
     try {
-      const result = await apiFetch('/api/crashes', { method: 'POST', body: JSON.stringify(payload) });
-      successEl.textContent = `Crash report ${result.report_number} submitted (${result.vehicle_count} vehicle(s), ${result.person_count} person(s)).`;
+      const { queued, result } = await submitFormOrQueue('crash', '/api/crashes', payload);
+      successEl.textContent = queued
+        ? `Crash report ${payload.report_number} saved on this device (${payload.vehicles.length} vehicle(s), ${payload.persons.length} person(s)) -- will upload automatically when you have signal.`
+        : `Crash report ${result.report_number} submitted (${result.vehicle_count} vehicle(s), ${result.person_count} person(s)).`;
       successEl.hidden = false;
       // Reset in place -- see the matching note in the incident submit handler.
       form.reset();
@@ -5197,12 +5539,33 @@ async function renderMonthlyReport(month) {
 }
 
 // ------------------------------------------------------------------
+// Session-expiry watchdog
+// ------------------------------------------------------------------
+// Catches the one thing a plain 401 can't while offline: the 12-hour
+// session simply running out mid-shift with no network available to learn
+// that from the server. Checked on boot, periodically while the app is
+// open, and whenever the tab/app comes back to the foreground (a phone
+// that's been asleep for hours needs this check on wake, not just on a
+// fixed interval that may never have fired while suspended).
+function enforceSessionExpiry() {
+  if (getToken() && isSessionExpired() && !appShell.hidden) {
+    clearSession();
+    showLogin('Your session has expired. Please log in again.');
+  }
+}
+setInterval(enforceSessionExpiry, 60 * 1000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') enforceSessionExpiry();
+});
+
+// ------------------------------------------------------------------
 // Boot
 // ------------------------------------------------------------------
 
-if (getToken()) {
+if (getToken() && !isSessionExpired()) {
   showApp();
 } else {
+  if (getToken()) clearSession(); // had a token, but it's already expired
   showLogin();
 }
 

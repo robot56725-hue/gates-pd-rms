@@ -51,6 +51,11 @@
       <div class="topbar-user">
         <span id="user-name"></span>
         <span id="user-role" class="badge"></span>
+        <!-- Hidden by default; refreshPendingSyncBadge() in app.js shows a
+             count and this button whenever an offline-created citation/
+             incident/MOR/crash report is still waiting to reach the
+             server. -->
+        <button id="pending-sync-badge" type="button" hidden></button>
         <button id="logout-btn" class="btn btn-link">Log Out</button>
       </div>
     </header>
@@ -1821,6 +1826,22 @@
       <video id="dl-scan-video" class="dl-scan-video" autoplay playsinline muted></video>
       <p id="dl-scan-status" class="hint"></p>
       <button type="button" id="dl-scan-cancel" class="btn btn-secondary btn-block">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Pending-sync panel: lists citations/incidents/MOR/crash reports that
+       were created on this device while offline and haven't reached the
+       server yet. Opened from #pending-sync-badge in the topbar -- see
+       refreshPendingSyncBadge()/renderPendingSyncPanel() in app.js. Records
+       always come from the live server once synced; nothing here is ever
+       treated as an authoritative copy of a record. -->
+  <div id="pending-sync-modal" class="app-modal" hidden>
+    <div class="app-modal-dialog">
+      <h3>Pending Uploads</h3>
+      <p class="hint">Saved on this device, not yet on the server. These upload automatically as soon as you have signal.</p>
+      <ul id="pending-sync-list" class="pending-sync-list"></ul>
+      <button type="button" id="pending-sync-now-btn" class="btn btn-secondary btn-block">Sync Now</button>
+      <button type="button" id="pending-sync-close-btn" class="btn btn-link btn-block">Close</button>
     </div>
   </div>
 

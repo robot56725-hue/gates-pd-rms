@@ -8,11 +8,23 @@ const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 const { loginSchema } = require('../validation/authSchema');
 
-// Hardcoded, not environment-configurable: the requirement is a *strict*
-// 30-minute access-token lifetime, not a tunable default. If a longer-lived
-// session is ever needed, that's a refresh-token feature to add
-// deliberately, not a config value to loosen here.
-const ACCESS_TOKEN_TTL = '30m';
+// Was a hardcoded, strict 30-minute lifetime (see git history) -- deliberately
+// tightened against a longer-lived token being treated as a casual config
+// tweak. Extended to a full shift (12h) by explicit chief's-office decision
+// (2026-10-22) specifically so an officer who loses signal mid-shift stays
+// logged in through the gap for the offline data-entry feature -- NOT a
+// walk-back of the original reasoning, a deliberate trade against it: a
+// lost/unlocked duty phone now stays authenticated for up to 12h instead of
+// 30m, with the phone's own lock screen as the actual line of defense during
+// that window (same trust model as any other work app on a duty phone). A
+// *real* refresh-token feature (short-lived access token + a separate,
+// revocable refresh token) would be the more defensible way to get the same
+// usability without this trade-off, and is still the better long-term fix --
+// this is the fast path chosen for now. Still no refresh mechanism: once a
+// token issued here expires, it's a fresh login, full stop -- which, at a
+// 12h TTL, already satisfies "re-login at least once a day" on its own.
+const ACCESS_TOKEN_TTL = '12h';
+const ACCESS_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 
 // A bcrypt hash of an arbitrary, never-used password. Compared against on a
 // failed lookup so that response timing for "no such user" and "wrong
@@ -117,7 +129,7 @@ const login = asyncHandler(async (req, res) => {
   res.status(200).json({
     token,
     token_type: 'Bearer',
-    expires_in_seconds: 30 * 60,
+    expires_in_seconds: ACCESS_TOKEN_TTL_SECONDS,
     role: user.role,
     roles,
     badge_number: user.badge_number,
