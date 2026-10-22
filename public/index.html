@@ -359,6 +359,8 @@
 
         <fieldset>
           <legend>Violator</legend>
+          <button type="button" id="i-scan-license-btn" class="btn btn-secondary btn-scan">Scan License / ID</button>
+          <p class="hint">Scans the barcode on the back of a driver's license or state ID and fills in the fields below -- review everything before submitting.</p>
           <label for="i-first-name">First Name</label>
           <input id="i-first-name" required />
           <label for="i-middle-name">Middle Name</label>
@@ -862,6 +864,7 @@
       <div class="edit-section no-print">
         <h4>Add Involved Party / Witness</h4>
         <form id="mor-add-person-form">
+          <button type="button" id="morp-scan-license-btn" class="btn btn-secondary btn-scan">Scan License / ID</button>
           <label for="morp-role">Role</label>
           <select id="morp-role"></select>
           <label for="morp-first-name">First Name</label>
@@ -1792,6 +1795,28 @@
     </section>
   </template>
 
+  <!-- ===================== DL/ID BARCODE SCANNER MODAL ===================== -->
+  <!-- Shared by every "Scan License" button (Issue Citation violator, incident
+       person rows, crash person rows, Matters of Record involved party/
+       witness). Decodes the PDF417 barcode printed on the BACK of a US
+       driver's license/ID (AAMVA DL/ID Card Design Standard) via the camera
+       and pre-fills whichever form opened it -- see parseAamvaBarcode() and
+       openLicenseScanner() in app.js. The officer always reviews/edits the
+       pre-filled fields before submitting; nothing here auto-submits a form. -->
+  <div id="dl-scan-modal" class="dl-scan-modal" hidden>
+    <div class="dl-scan-dialog">
+      <h3>Scan Driver's License / ID</h3>
+      <p class="hint">Hold the <strong>back</strong> of the card (the side with the barcode) steady in front of the camera, a few inches away.</p>
+      <video id="dl-scan-video" class="dl-scan-video" autoplay playsinline muted></video>
+      <p id="dl-scan-status" class="hint"></p>
+      <button type="button" id="dl-scan-cancel" class="btn btn-secondary btn-block">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Pinned version (see CDN policy note in app.js's top-of-file comment) --
+       decodes the PDF417 barcode; parseAamvaBarcode() in app.js then parses
+       the AAMVA-standard field codes out of the decoded text. -->
+  <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.2.1/umd/zxing-browser.min.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -320,6 +320,46 @@ legend {
   .photo-item { break-inside: avoid; }
 }
 
+/* ---------------- DL/ID barcode scanner ---------------- */
+.btn-scan {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.dl-scan-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 27, 52, 0.92);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.dl-scan-dialog {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  text-align: center;
+}
+.dl-scan-video {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  background: #000;
+  border-radius: 8px;
+  margin: 12px 0;
+  object-fit: cover;
+}
+
+@media print {
+  .dl-scan-modal, .btn-scan { display: none !important; }
+}
+
 @media (max-width: 420px) {
   .detail-grid { grid-template-columns: 110px 1fr; font-size: 0.9rem; }
 }

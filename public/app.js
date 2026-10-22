@@ -1075,6 +1075,12 @@ function renderIssueForm() {
   mount('tpl-issue');
   const form = document.getElementById('issue-form');
 
+  document.getElementById('i-scan-license-btn').addEventListener('click', () => {
+    openLicenseScanner({
+      onResult: (fields) => applyAamvaFieldsToForm(document, fields, ISSUE_FORM_SCAN_SELECTORS),
+    });
+  });
+
   const signaturePad = setupSignaturePad(document.getElementById('i-signature-pad'));
   const signatureRefused = document.getElementById('i-signature-refused');
   document.getElementById('i-signature-clear').addEventListener('click', () => signaturePad.clear());
@@ -1633,6 +1639,338 @@ const PERSON_RACE_VALUES = [
   'Unknown',
 ];
 
+// =============================================================================
+// DL/ID barcode scanning (AAMVA DL/ID Card Design Standard, PDF417 barcode
+// printed on the back of every US driver's license/ID). Shared by every
+// "Scan License / ID" button -- Issue Citation's violator fieldset, incident
+// person rows, crash person rows, and the Matters of Record involved-party/
+// witness form (see #dl-scan-modal in index.html and the four wiring call
+// sites below). The decoded barcode only ever PRE-FILLS a form; the officer
+// still reviews and submits it themselves like any manually-typed entry --
+// nothing here auto-submits anything, which keeps a misread field a quick
+// manual correction rather than a silent data-integrity problem.
+//
+// Barcode decoding itself is handled by @zxing/browser (loaded via CDN
+// script tag in index.html, pinned to 0.2.1 -- see that file's comment),
+// which exposes a `ZXingBrowser` global with a dedicated
+// `BrowserPDF417Reader`. Everything below this point -- the AAMVA field-code
+// parser, the state/jurisdiction lookup, the unit conversions -- is this
+// app's own code; ZXing only turns the camera image into the raw barcode
+// text, it knows nothing about AAMVA's field layout.
+// =============================================================================
+
+// AAMVA assigns each issuing jurisdiction (state/province) a 6-digit Issuer
+// Identification Number (IIN) encoded in the barcode's own header -- it is
+// NOT one of the per-field data elements -- so this is the only reliable
+// way to recover which state actually ISSUED the license. (The barcode's
+// own DAJ data element, used as a fallback below, is the person's
+// mailing-address state, which is often but not always the same state as
+// the issuer.) Source: AAMVA's published North American jurisdiction IIN
+// list, 50 states + DC (the jurisdictions this department will overwhelmingly
+// encounter); Tennessee (636053) is the one that matters most here and has
+// been double-checked. A card from a jurisdiction not listed here (a US
+// territory, Canadian province, or a future AAMVA assignment) falls back to
+// the address-state field instead -- see normalizeAamvaBarcode() -- and the
+// officer can always correct the DL State field by hand either way.
+const AAMVA_IIN_TO_STATE = {
+  '636033': 'AL', '636059': 'AK', '636026': 'AZ', '636021': 'AR',
+  '636014': 'CA', '636020': 'CO', '636006': 'CT', '636011': 'DE',
+  '636043': 'DC', '636010': 'FL', '636055': 'GA', '636047': 'HI',
+  '636050': 'ID', '636035': 'IL', '636037': 'IN', '636018': 'IA',
+  '636022': 'KS', '636046': 'KY', '636007': 'LA', '636041': 'ME',
+  '636003': 'MD', '636002': 'MA', '636032': 'MI', '636038': 'MN',
+  '636051': 'MS', '636030': 'MO', '636008': 'MT', '636054': 'NE',
+  '636049': 'NV', '636039': 'NH', '636036': 'NJ', '636009': 'NM',
+  '636001': 'NY', '636004': 'NC', '636034': 'ND', '636023': 'OH',
+  '636058': 'OK', '636029': 'OR', '636025': 'PA', '636052': 'RI',
+  '636005': 'SC', '636042': 'SD', '636053': 'TN', '636015': 'TX',
+  '636040': 'UT', '636024': 'VT', '636000': 'VA', '636045': 'WA',
+  '636061': 'WV', '636031': 'WI', '636060': 'WY',
+};
+
+// AAMVA's standard 3-letter eye-color codes, mapped to the free-text word an
+// officer would otherwise type into the Eye Color field themselves.
+const AAMVA_EYE_COLOR_CODES = {
+  BLK: 'Black', BLU: 'Blue', BRO: 'Brown', GRY: 'Gray', GRN: 'Green',
+  HAZ: 'Hazel', MAR: 'Maroon', PNK: 'Pink', DIC: 'Dichromatic', UNK: 'Unknown',
+};
+
+// AAMVA's DBB (date of birth) element is CCYYMMDD on every card issued under
+// the 2010-and-later standard, which is effectively everything in active
+// circulation. Returns '' (never a wrong-but-plausible-looking date) for
+// anything that doesn't parse cleanly, so a form field is just left blank
+// rather than silently wrong.
+function parseAamvaDate(raw) {
+  if (!raw) return '';
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length !== 8) return '';
+  const year = digits.slice(0, 4);
+  const month = digits.slice(4, 6);
+  const day = digits.slice(6, 8);
+  const monthNum = Number(month);
+  const dayNum = Number(day);
+  if (monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) return '';
+  return `${year}-${month}-${day}`;
+}
+
+// AAMVA's DAU (height) element is usually e.g. "069 in" but some
+// jurisdictions encode centimeters instead -- convert so the form's
+// height_inches field (master_persons.height_inches, always inches) gets a
+// consistent unit either way.
+function parseAamvaHeightInches(raw) {
+  if (!raw) return '';
+  const match = raw.match(/(\d+)/);
+  if (!match) return '';
+  const value = Number(match[1]);
+  return /cm/i.test(raw) ? String(Math.round(value / 2.54)) : String(value);
+}
+
+// Same unit-normalization idea as height, for DAW (weight).
+function parseAamvaWeightLbs(raw) {
+  if (!raw) return '';
+  const match = raw.match(/(\d+)/);
+  if (!match) return '';
+  const value = Number(match[1]);
+  return /kg/i.test(raw) ? String(Math.round(value * 2.20462)) : String(value);
+}
+
+// AAMVA's DAK (postal code) element is unpunctuated digits (e.g.
+// "370370000" for a plain 5-digit ZIP with no +4, or "370371234" for a real
+// +4). Format it the way a person would actually type it.
+function formatAamvaPostalCode(raw) {
+  if (!raw) return '';
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 9) {
+    const zip5 = digits.slice(0, 5);
+    const plus4 = digits.slice(5);
+    return plus4 === '0000' ? zip5 : `${zip5}-${plus4}`;
+  }
+  if (digits.length === 5) return digits;
+  return raw;
+}
+
+// Parses the raw text ZXing decodes off a PDF417 barcode into the AAMVA
+// standard's 3-letter-code data elements (e.g. "DCS" -> last name), plus the
+// 6-digit issuer IIN from the header, then maps that into the field names
+// this app's forms actually use. Returns null for anything that doesn't
+// look like an AAMVA driver's license/ID barcode at all (wrong barcode
+// type, damaged scan) rather than guessing at a mostly-empty result.
+//
+// Real-world AAMVA barcodes put one data element per line (each line is
+// its 3-letter element ID immediately followed by that element's value),
+// which is what every AAMVA-compliant encoder in the field actually
+// produces -- this is the same line-based approach widely used by other
+// open-source AAMVA parsers, not a guess specific to this app.
+//
+// Deliberately NOT parsed here because AAMVA does not encode them at all:
+// race/ethnicity. Deliberately left for the officer to set, even though a
+// jurisdiction-specific code IS present, because it cannot be mapped to a
+// boolean reliably across jurisdictions: whether the license is a CDL
+// (dl_class is filled in from the raw jurisdiction vehicle-class code, but
+// the "Commercial Driver's License (CDL)" checkbox itself is always left
+// for the officer to check).
+function normalizeAamvaBarcode(rawText) {
+  if (!rawText) return null;
+  const fields = {};
+  rawText.split(/[\r\n]+/).forEach((lineRaw) => {
+    const line = lineRaw.trim();
+    if (line.length < 3) return;
+    const code = line.slice(0, 3);
+    if (/^[A-Z]{3}$/.test(code)) {
+      fields[code] = line.slice(3).trim();
+    }
+  });
+
+  // Nothing resembling a last name or a DL/ID number means this wasn't a
+  // driver's license/ID barcode -- bail out rather than pre-filling a form
+  // with garbage.
+  if (!fields.DCS && !fields.DAQ) return null;
+
+  const iinMatch = rawText.match(/ANSI\s*(\d{6})/) || rawText.match(/AAMVA\s*(\d{6})/);
+  const iin = iinMatch ? iinMatch[1] : null;
+
+  const sexMap = { '1': 'Male', '2': 'Female', '9': 'Unknown' };
+  const middleName = fields.DAD && fields.DAD.toUpperCase() !== 'NONE' ? fields.DAD : '';
+  const streetLine = [fields.DAG, fields.DAH].filter(Boolean).join(' ');
+  const cityLine = [fields.DAI, fields.DAJ, formatAamvaPostalCode(fields.DAK)].filter(Boolean).join(', ');
+  const address = [streetLine, cityLine].filter(Boolean).join(', ');
+
+  return {
+    firstName: fields.DAC || '',
+    middleName,
+    lastName: fields.DCS || '',
+    dob: parseAamvaDate(fields.DBB),
+    sex: sexMap[fields.DBC] || '',
+    eyeColor: AAMVA_EYE_COLOR_CODES[fields.DAY] || fields.DAY || '',
+    heightInches: parseAamvaHeightInches(fields.DAU),
+    weightLbs: parseAamvaWeightLbs(fields.DAW),
+    address,
+    dlNumber: fields.DAQ || '',
+    dlState: AAMVA_IIN_TO_STATE[iin] || fields.DAJ || '',
+    dlClass: fields.DCA || '',
+    phone: '',
+  };
+}
+
+// Every logical field a scan can produce; a context's own selector map
+// (below) only lists the keys that form actually collects, so e.g. the
+// Matters of Record involved-party form -- which only has name fields --
+// simply never looks at dob/sex/etc.
+const AAMVA_SCAN_FIELD_KEYS = [
+  'firstName', 'middleName', 'lastName', 'dob', 'sex', 'heightInches',
+  'weightLbs', 'eyeColor', 'dlNumber', 'dlState', 'dlClass', 'phone', 'address',
+];
+
+// Writes whichever of `normalized`'s fields this particular form collects
+// (per `selectors`) into `scope` -- `document` for a fixed-id form (Issue
+// Citation, Matters of Record), or one dynamic row element for incident/
+// crash person rows, where the same field names repeat per row as classes.
+// A selector this context doesn't define, or a value the scan didn't
+// produce, is skipped -- never writes an empty string over something the
+// officer may have already typed.
+function applyAamvaFieldsToForm(scope, normalized, selectors) {
+  AAMVA_SCAN_FIELD_KEYS.forEach((key) => {
+    const selector = selectors[key];
+    const value = normalized[key];
+    if (!selector || value === undefined || value === null || value === '') return;
+    const el = scope.querySelector(selector);
+    if (!el) return;
+    el.value = value;
+  });
+}
+
+const ISSUE_FORM_SCAN_SELECTORS = {
+  firstName: '#i-first-name',
+  middleName: '#i-middle-name',
+  lastName: '#i-last-name',
+  dob: '#i-dob',
+  sex: '#i-sex',
+  heightInches: '#i-height',
+  weightLbs: '#i-weight',
+  eyeColor: '#i-eye-color',
+  dlNumber: '#i-dl-num',
+  dlState: '#i-dl-state',
+  dlClass: '#i-dl-class',
+  phone: '#i-phone',
+  address: '#i-address',
+};
+
+const INCIDENT_PERSON_SCAN_SELECTORS = {
+  firstName: '.p-first-name',
+  lastName: '.p-last-name',
+  dob: '.p-dob',
+  sex: '.p-sex',
+  heightInches: '.p-height',
+  weightLbs: '.p-weight',
+  eyeColor: '.p-eye-color',
+  dlNumber: '.p-dl-num',
+  dlState: '.p-dl-state',
+  dlClass: '.p-dl-class',
+  phone: '.p-phone',
+  address: '.p-address',
+};
+
+const CRASH_PERSON_SCAN_SELECTORS = {
+  firstName: '.cp-first-name',
+  lastName: '.cp-last-name',
+  dob: '.cp-dob',
+  sex: '.cp-sex',
+};
+
+const MOR_PERSON_SCAN_SELECTORS = {
+  firstName: '#morp-first-name',
+  lastName: '#morp-last-name',
+  phone: '#morp-phone',
+};
+
+// Opens the shared #dl-scan-modal, starts the rear-facing camera, and
+// continuously scans for a PDF417 barcode until one decodes successfully.
+// Calls exactly one of onResult(normalizedFields, rawText) or onCancel() --
+// never both -- and always tears down the camera stream before either
+// fires, whether the officer cancels, a barcode decodes, or the camera
+// itself fails to start (permission denied, no camera, offline CDN, etc).
+function openLicenseScanner({ onResult, onCancel }) {
+  const modal = document.getElementById('dl-scan-modal');
+  const video = document.getElementById('dl-scan-video');
+  const statusEl = document.getElementById('dl-scan-status');
+  const cancelBtn = document.getElementById('dl-scan-cancel');
+
+  if (typeof ZXingBrowser === 'undefined') {
+    // The CDN script didn't load (offline, blocked, etc.) -- fail loudly
+    // rather than the button silently doing nothing.
+    alert(
+      "The barcode scanner could not load. Check your internet connection and try again, or enter the information manually."
+    );
+    if (onCancel) onCancel();
+    return;
+  }
+
+  let capturedStream = null;
+  let controls = null;
+  let closed = false;
+
+  function cleanup() {
+    if (closed) return;
+    closed = true;
+    if (controls) {
+      try {
+        controls.stop();
+      } catch (err) {
+        /* already stopped */
+      }
+    }
+    if (capturedStream) {
+      capturedStream.getTracks().forEach((track) => track.stop());
+    }
+    video.srcObject = null;
+    modal.hidden = true;
+    cancelBtn.removeEventListener('click', handleCancelClick);
+  }
+
+  function handleCancelClick() {
+    cleanup();
+    if (onCancel) onCancel();
+  }
+
+  cancelBtn.addEventListener('click', handleCancelClick);
+  modal.hidden = false;
+  statusEl.textContent = 'Starting camera...';
+
+  const reader = new ZXingBrowser.BrowserPDF417Reader();
+  const constraints = { video: { facingMode: { ideal: 'environment' } } };
+
+  reader
+    .decodeFromConstraints(constraints, video, (result, err, scanControls) => {
+      controls = scanControls;
+      if (!result) return; // nothing decoded in this frame yet -- keep scanning
+      const rawText = result.getText();
+      const normalized = normalizeAamvaBarcode(rawText);
+      cleanup();
+      if (!normalized) {
+        alert("That didn't look like a driver's license/ID barcode. Try scanning again, or enter the information manually.");
+        if (onCancel) onCancel();
+        return;
+      }
+      onResult(normalized, rawText);
+    })
+    .then((scanControls) => {
+      controls = scanControls;
+      capturedStream = video.srcObject;
+      if (!closed) statusEl.textContent = 'Looking for the barcode...';
+    })
+    .catch((err) => {
+      cleanup();
+      const message =
+        err && err.name === 'NotAllowedError'
+          ? 'Camera access was denied. Allow camera access for this site and try again, or enter the information manually.'
+          : err && err.name === 'NotFoundError'
+          ? 'No camera was found on this device. Enter the information manually.'
+          : `Could not start the camera: ${err && err.message ? err.message : err}`;
+      alert(message);
+      if (onCancel) onCancel();
+    });
+}
+
 const WEATHER_CONDITIONS = [
   'Clear',
   'Cloudy',
@@ -1823,6 +2161,7 @@ function addIncidentOffenseRow(containerId = 'incident-offense-rows') {
 
 function personRowHtml() {
   return `<input type="hidden" class="p-person-id" />
+     <button type="button" class="btn btn-secondary btn-scan p-scan-btn">Scan License / ID</button>
      <label>Role</label>
      <select class="p-role" required><option value="">-- select --</option>${optionsHtml(INCIDENT_PERSON_ROLES)}</select>
      <label>First Name</label>
@@ -1866,6 +2205,11 @@ function addIncidentPersonRow(containerId = 'incident-person-rows', refreshFn = 
   row.querySelector('.p-role').addEventListener('change', refreshFn);
   row.querySelector('.p-first-name').addEventListener('input', refreshFn);
   row.querySelector('.p-last-name').addEventListener('input', refreshFn);
+  row.querySelector('.p-scan-btn').addEventListener('click', () => {
+    openLicenseScanner({
+      onResult: (fields) => applyAamvaFieldsToForm(row, fields, INCIDENT_PERSON_SCAN_SELECTORS),
+    });
+  });
   row._onRemove = refreshFn;
   refreshFn();
   return row;
@@ -2622,6 +2966,11 @@ async function renderMorDetail(id) {
   wirePrintButton(mainContent.querySelector('.print-btn'));
 
   document.getElementById('morp-role').innerHTML = optionsHtml(MOR_PERSON_ROLES, '-- select --');
+  document.getElementById('morp-scan-license-btn').addEventListener('click', () => {
+    openLicenseScanner({
+      onResult: (fields) => applyAamvaFieldsToForm(document, fields, MOR_PERSON_SCAN_SELECTORS),
+    });
+  });
 
   async function loadDetail() {
     const mor = await apiFetch(`/api/mor/${id}`);
@@ -2798,10 +3147,11 @@ function addCrashVehicleRow() {
 
 function addCrashPersonRow() {
   const container = document.getElementById('crash-person-rows');
-  makeRemovableRow(
+  const row = makeRemovableRow(
     container,
     'person-row',
-    `<label>Role</label>
+    `<button type="button" class="btn btn-secondary btn-scan cp-scan-btn">Scan License / ID</button>
+     <label>Role</label>
      <select class="cp-role" required>${optionsHtml(CRASH_PERSON_ROLES)}</select>
      <label>First Name</label><input class="cp-first-name" />
      <label>Last Name</label><input class="cp-last-name" />
@@ -2811,6 +3161,11 @@ function addCrashPersonRow() {
      <label>Injury Severity</label><select class="cp-injury">${optionsHtml(CRASH_INJURY_SEVERITIES)}</select>
      <label>Vehicle</label><select class="cp-vehicle"></select>`
   );
+  row.querySelector('.cp-scan-btn').addEventListener('click', () => {
+    openLicenseScanner({
+      onResult: (fields) => applyAamvaFieldsToForm(row, fields, CRASH_PERSON_SCAN_SELECTORS),
+    });
+  });
   refreshCrashPersonVehicleSelects();
 }
 
