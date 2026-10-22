@@ -1695,18 +1695,34 @@ const AAMVA_EYE_COLOR_CODES = {
   HAZ: 'Hazel', MAR: 'Maroon', PNK: 'Pink', DIC: 'Dichromatic', UNK: 'Unknown',
 };
 
-// AAMVA's DBB (date of birth) element is CCYYMMDD on every card issued under
-// the 2010-and-later standard, which is effectively everything in active
-// circulation. Returns '' (never a wrong-but-plausible-looking date) for
-// anything that doesn't parse cleanly, so a form field is just left blank
-// rather than silently wrong.
+// AAMVA's standard 3-letter hair-color codes (element DAZ), same idea as
+// eye color above. This element was missing entirely from the first
+// version of this scanner -- not a parsing bug, just never built -- so
+// Hair Color always came back blank on every scan until now.
+const AAMVA_HAIR_COLOR_CODES = {
+  BAL: 'Bald', BLK: 'Black', BLN: 'Blonde', BRO: 'Brown', GRY: 'Gray',
+  RED: 'Red/Auburn', SDY: 'Sandy', WHI: 'White', UNK: 'Unknown',
+};
+
+// AAMVA's DBB (date of birth) element -- and DBD/DBA (issue/expiration),
+// not currently used by this app -- are encoded MMDDCCYY (month, day, then
+// 4-digit year), NOT CCYYMMDD. An earlier version of this function assumed
+// CCYYMMDD, which was never actually verified against a real card; that
+// wrong assumption is why Date of Birth came back blank on every real scan
+// (every real DOB has monthNum > 12 under the wrong byte order, so the
+// validity check below correctly rejected it as garbage every time rather
+// than silently writing a wrong date -- the safety behavior worked
+// exactly as intended, the parsing order underneath it was just wrong).
+// Confirmed against official state DMV barcode-calibration references
+// (Florida and Virginia DMV) and the aamva-parser reference
+// implementation's own example record, not guessed.
 function parseAamvaDate(raw) {
   if (!raw) return '';
   const digits = raw.replace(/\D/g, '');
   if (digits.length !== 8) return '';
-  const year = digits.slice(0, 4);
-  const month = digits.slice(4, 6);
-  const day = digits.slice(6, 8);
+  const month = digits.slice(0, 2);
+  const day = digits.slice(2, 4);
+  const year = digits.slice(4, 8);
   const monthNum = Number(month);
   const dayNum = Number(day);
   if (monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) return '';
@@ -1771,8 +1787,32 @@ function formatAamvaPostalCode(raw) {
 // for the officer to check).
 function normalizeAamvaBarcode(rawText) {
   if (!rawText) return null;
+
+  // The AAMVA header ("@" + control chars + "ANSI "/"AAMVA " + a 12-digit
+  // IIN/version/entry-count block) is immediately followed by one
+  // subfile-designator entry per subfile (each exactly 2 letters + 8
+  // digits, e.g. "DL00410288"), with NO line break anywhere in that whole
+  // block -- and then, critically, NO line break between the LAST
+  // designator entry and the subfile's own 2-letter repeat-marker (e.g.
+  // "DL" again) that immediately precedes the very FIRST real data
+  // element. That means the first element in the first subfile -- on a
+  // real card this is very often DAQ, the DL/ID number -- sits on the
+  // same unbroken line as the entire header and gets silently swallowed
+  // by the line-based parsing below: the line starts with "ANSI "/
+  // "AAMVA ", not a real 3-letter code, so it's ignored outright, taking
+  // that first element's code and value down with it. This was confirmed
+  // against a real reference AAMVA record (aamva-parser's own example),
+  // not guessed, and explains why DL Number came back blank on real scans
+  // even though every other element parsed correctly. Stripping the
+  // header+designator+marker block up front, before the per-line parsing,
+  // fixes this regardless of which element happens to be first.
+  const headerMatch = rawText.match(/(?:ANSI|AAMVA)\s*\d{12}(?:[A-Z]{2}\d{8})+[A-Z]{2}/);
+  const dataSection = headerMatch
+    ? rawText.slice(headerMatch.index + headerMatch[0].length)
+    : rawText;
+
   const fields = {};
-  rawText.split(/[\r\n]+/).forEach((lineRaw) => {
+  dataSection.split(/[\r\n]+/).forEach((lineRaw) => {
     const line = lineRaw.trim();
     if (line.length < 3) return;
     const code = line.slice(0, 3);
@@ -1802,6 +1842,7 @@ function normalizeAamvaBarcode(rawText) {
     dob: parseAamvaDate(fields.DBB),
     sex: sexMap[fields.DBC] || '',
     eyeColor: AAMVA_EYE_COLOR_CODES[fields.DAY] || fields.DAY || '',
+    hairColor: AAMVA_HAIR_COLOR_CODES[fields.DAZ] || fields.DAZ || '',
     heightInches: parseAamvaHeightInches(fields.DAU),
     weightLbs: parseAamvaWeightLbs(fields.DAW),
     address,
@@ -1818,7 +1859,7 @@ function normalizeAamvaBarcode(rawText) {
 // simply never looks at dob/sex/etc.
 const AAMVA_SCAN_FIELD_KEYS = [
   'firstName', 'middleName', 'lastName', 'dob', 'sex', 'heightInches',
-  'weightLbs', 'eyeColor', 'dlNumber', 'dlState', 'dlClass', 'phone', 'address',
+  'weightLbs', 'eyeColor', 'hairColor', 'dlNumber', 'dlState', 'dlClass', 'phone', 'address',
 ];
 
 // Writes whichever of `normalized`'s fields this particular form collects
@@ -1848,6 +1889,7 @@ const ISSUE_FORM_SCAN_SELECTORS = {
   heightInches: '#i-height',
   weightLbs: '#i-weight',
   eyeColor: '#i-eye-color',
+  hairColor: '#i-hair-color',
   dlNumber: '#i-dl-num',
   dlState: '#i-dl-state',
   dlClass: '#i-dl-class',
@@ -1863,6 +1905,7 @@ const INCIDENT_PERSON_SCAN_SELECTORS = {
   heightInches: '.p-height',
   weightLbs: '.p-weight',
   eyeColor: '.p-eye-color',
+  hairColor: '.p-hair-color',
   dlNumber: '.p-dl-num',
   dlState: '.p-dl-state',
   dlClass: '.p-dl-class',
