@@ -203,25 +203,43 @@ legend {
   margin: 0 auto;
 }
 
+/* A Supervisor/System_Admin account can see up to 10 of these buttons at
+   once (Search, Citations, Issue Citation, Incidents, MOR, Crashes,
+   Evidence, Cases, Court, Personnel -- see the nav-*.hidden role checks in
+   app.js). With the old `flex: 1` equal-split layout, 10 buttons squeezed
+   into a phone-width bar left each one only a few px wide and their
+   labels overlapping/clipped. This instead lets the bar scroll
+   horizontally -- each button keeps a legible minimum width and the
+   officer swipes to reach ones off-screen, same pattern as a mobile
+   browser's own tab strip. */
 .bottom-nav {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
   background: #fff;
   border-top: 1px solid var(--border);
   padding: 6px env(safe-area-inset-right) calc(6px + env(safe-area-inset-bottom)) env(safe-area-inset-left);
 }
+.bottom-nav::-webkit-scrollbar { display: none; }
 .nav-btn {
-  flex: 1;
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  min-width: 72px;
   background: transparent;
   border: none;
-  padding: 10px 4px;
-  font-size: 0.85rem;
+  padding: 10px 10px;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--muted);
   cursor: pointer;
+  white-space: nowrap;
 }
 .nav-btn.active { color: var(--navy); }
 

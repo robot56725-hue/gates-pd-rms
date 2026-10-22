@@ -5205,3 +5205,19 @@ if (getToken()) {
 } else {
   showLogin();
 }
+
+
+// ------------------------------------------------------------------
+// Service worker (PWA installability + app-shell offline fallback)
+// ------------------------------------------------------------------
+// Registered from here rather than an inline <script> in index.html so
+// there's one place JS lives. Never touches /api/* (see sw.js) -- this is
+// purely about the app shell installing to a phone's home screen and still
+// opening (to a "you're offline" view, not stale records) with no signal.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.warn('Service worker registration failed:', err);
+    });
+  });
+}
