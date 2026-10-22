@@ -49,6 +49,14 @@ app.use(
         // every photo thumbnail with no console error, since CSP
         // image-blocked violations don't surface as a script error.
         'img-src': ["'self'", 'data:', 'blob:'],
+        // The DL/ID barcode scanner (public/index.html) loads the
+        // @zxing/browser UMD bundle from a pinned jsDelivr URL (see
+        // openLicenseScanner in public/app.js). Helmet's default
+        // script-src ('self' only) silently blocks that <script> tag --
+        // no console error of its own, just a CSP violation report --
+        // so ZXingBrowser stays undefined and the scanner falls through
+        // to its "could not load" alert on every single scan attempt.
+        'script-src': ["'self'", 'https://cdn.jsdelivr.net'],
       },
     },
   })
