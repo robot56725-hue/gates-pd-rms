@@ -291,6 +291,35 @@ legend {
 #ev-case-results .result-item,
 #ev-case-status { margin-top: 6px; }
 
+/* ---------------- Photo gallery (incidents / MOR / crashes) ---------------- */
+.photo-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.photo-item {
+  width: 140px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: default;
+}
+.photo-thumb {
+  display: block;
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg);
+}
+.photo-item .r-sub { word-break: break-word; }
+.photo-item .photo-delete-btn { margin-top: 8px; width: 100%; padding: 8px; min-height: 36px; }
+
+@media print {
+  .photo-item .photo-delete-btn { display: none; }
+  .photo-item { break-inside: avoid; }
+}
+
 @media (max-width: 420px) {
   .detail-grid { grid-template-columns: 110px 1fr; font-size: 0.9rem; }
 }

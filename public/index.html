@@ -664,6 +664,10 @@
       <ul class="result-list i-relationships"></ul>
       <h3>Property</h3>
       <ul class="result-list i-property"></ul>
+      <h3>Linked Evidence</h3>
+      <ul class="result-list i-linked-evidence"></ul>
+      <h3>Photos</h3>
+      <ul class="result-list photo-gallery i-photo-list"></ul>
       <h3>Narrative</h3>
       <ul class="result-list i-narratives"></ul>
 
@@ -760,6 +764,19 @@
           <p class="iec-success success-text" hidden></p>
         </form>
       </div>
+
+      <div class="edit-section no-print">
+        <button class="btn btn-secondary edit-toggle-btn" id="i-photo-add-toggle">+ Add Photo</button>
+        <form id="i-photo-add-form" hidden>
+          <label for="i-photo-file">Photo</label>
+          <input id="i-photo-file" type="file" accept="image/*" capture="environment" required />
+          <label for="i-photo-caption">Caption <span class="hint">(optional)</span></label>
+          <input id="i-photo-caption" maxlength="500" />
+          <button type="submit" class="btn btn-primary">Upload Photo</button>
+          <p class="i-photo-error error-text" hidden></p>
+          <p class="i-photo-success success-text" hidden></p>
+        </form>
+      </div>
     </section>
   </template>
 
@@ -839,6 +856,8 @@
       <p class="mor-narrative"></p>
       <h3>Involved Parties / Witnesses</h3>
       <ul class="result-list mor-persons"></ul>
+      <h3>Photos</h3>
+      <ul class="result-list photo-gallery mor-photo-list"></ul>
 
       <div class="edit-section no-print">
         <h4>Add Involved Party / Witness</h4>
@@ -888,6 +907,19 @@
           <button type="submit" class="btn btn-primary btn-block">Save Changes</button>
           <p class="me-error error-text" hidden></p>
           <p class="me-success success-text" hidden></p>
+        </form>
+      </div>
+
+      <div class="edit-section no-print">
+        <button class="btn btn-secondary edit-toggle-btn" id="mor-photo-add-toggle">+ Add Photo</button>
+        <form id="mor-photo-add-form" hidden>
+          <label for="mor-photo-file">Photo</label>
+          <input id="mor-photo-file" type="file" accept="image/*" capture="environment" required />
+          <label for="mor-photo-caption">Caption <span class="hint">(optional)</span></label>
+          <input id="mor-photo-caption" maxlength="500" />
+          <button type="submit" class="btn btn-primary">Upload Photo</button>
+          <p class="mor-photo-error error-text" hidden></p>
+          <p class="mor-photo-success success-text" hidden></p>
         </form>
       </div>
     </section>
@@ -978,6 +1010,10 @@
       <ul class="result-list cr-vehicles"></ul>
       <h3>Persons</h3>
       <ul class="result-list cr-persons"></ul>
+      <h3>Linked Evidence</h3>
+      <ul class="result-list cr-linked-evidence"></ul>
+      <h3>Photos</h3>
+      <ul class="result-list photo-gallery cr-photo-list"></ul>
       <h3>Narrative</h3>
       <p class="cr-narrative"></p>
 
@@ -1022,6 +1058,19 @@
           <button type="submit" class="btn btn-primary btn-block">Save Changes</button>
           <p class="cre-error error-text" hidden></p>
           <p class="cre-success success-text" hidden></p>
+        </form>
+      </div>
+
+      <div class="edit-section no-print">
+        <button class="btn btn-secondary edit-toggle-btn" id="cr-photo-add-toggle">+ Add Photo</button>
+        <form id="cr-photo-add-form" hidden>
+          <label for="cr-photo-file">Photo</label>
+          <input id="cr-photo-file" type="file" accept="image/*" capture="environment" required />
+          <label for="cr-photo-caption">Caption <span class="hint">(optional)</span></label>
+          <input id="cr-photo-caption" maxlength="500" />
+          <button type="submit" class="btn btn-primary">Upload Photo</button>
+          <p class="cr-photo-error error-text" hidden></p>
+          <p class="cr-photo-success success-text" hidden></p>
         </form>
       </div>
     </section>

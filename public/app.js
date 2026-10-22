@@ -379,6 +379,215 @@ function wirePrintButton(btn) {
 }
 
 // ------------------------------------------------------------------
+// Photos (incidents / MOR / crashes) -- shared by all three detail views.
+// See src/controllers/photos.controller.js / db/migrations/014_add_case_
+// photos.sql for the backend side.
+// ------------------------------------------------------------------
+
+// Downscales + re-encodes a selected image file to JPEG in the browser
+// before upload, via an offscreen <canvas> -- keeps a phone-camera photo
+// (often several MB at full resolution) well under case_photos' 8 MB cap
+// and the body-size limit on /api/photos (src/app.js), and keeps the
+// database itself from growing faster than it needs to (see the note on
+// case_photos' storage choice in the migration). 1600px on the long edge
+// is plenty to make out a scene, a license plate, or a document photo
+// without still being camera-original size.
+function downscaleImageFile(file, maxDim = 1600, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read the selected file.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Could not decode the selected image. Choose a JPEG, PNG, or WebP file.'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width >= height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve({ mimeType: 'image/jpeg', base64: dataUrl.split(',')[1] });
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// GET /api/photos/:id/file requires the same JWT bearer auth as every
+// other endpoint, which a plain <img src="..."> never sends -- so a photo
+// is always fetched with this (not set directly as an <img> src) and the
+// response turned into an object URL. See the identical note on
+// getPhotoFile in src/controllers/photos.controller.js.
+async function fetchPhotoBlob(photoId) {
+  const token = getToken();
+  const res = await fetch(`/api/photos/${photoId}/file`, {
+    headers: { Authorization: token ? `Bearer ${token}` : undefined },
+  });
+  if (!res.ok) throw new Error(`Could not load photo (${res.status}).`);
+  return res.blob();
+}
+
+// Wires the Photos section on an incident/MOR/crash detail view: `prefix`
+// picks out this record type's own element ids/classes (e.g. 'i' for
+// incidents -> .i-photo-list, #i-photo-add-toggle, #i-photo-add-form,
+// #i-photo-file, #i-photo-caption, .i-photo-error, .i-photo-success --
+// see the matching markup in each tpl-*-detail template in index.html).
+// `recordType` is one of the photo_record_type enum values the API expects
+// ('Incident' | 'MOR' | 'Crash').
+async function wirePhotosSection(recordType, recordId, prefix) {
+  const listEl = mainContent.querySelector(`.${prefix}-photo-list`);
+  const toggle = document.getElementById(`${prefix}-photo-add-toggle`);
+  const form = document.getElementById(`${prefix}-photo-add-form`);
+  const fileInput = document.getElementById(`${prefix}-photo-file`);
+  const captionInput = document.getElementById(`${prefix}-photo-caption`);
+  const errorEl = mainContent.querySelector(`.${prefix}-photo-error`);
+  const successEl = mainContent.querySelector(`.${prefix}-photo-success`);
+
+  const canWrite = hasAnyRole('Patrol_Officer', 'Supervisor', 'System_Admin');
+  toggle.hidden = !canWrite;
+  if (!canWrite) form.hidden = true;
+
+  // Object URLs created for the previous render of this list -- revoked
+  // before every refresh so repeatedly opening a detail view (or deleting/
+  // re-uploading photos on it) doesn't leak memory.
+  let objectUrls = [];
+  function revokeAll() {
+    objectUrls.forEach((u) => URL.revokeObjectURL(u));
+    objectUrls = [];
+  }
+
+  async function refresh() {
+    revokeAll();
+    listEl.innerHTML = '<li class="hint">Loading photos...</li>';
+    let data;
+    try {
+      data = await apiFetch(`/api/photos?record_type=${recordType}&record_id=${recordId}`);
+    } catch (err) {
+      listEl.innerHTML = `<li class="error-text">${escapeHtml(err.message)}</li>`;
+      return;
+    }
+    if (data.results.length === 0) {
+      listEl.innerHTML = '<li class="hint">No photos on file.</li>';
+      return;
+    }
+    listEl.innerHTML = '';
+    data.results.forEach((p) => {
+      const li = document.createElement('li');
+      li.className = 'photo-item';
+      li.innerHTML = `
+        <img class="photo-thumb" alt="${escapeHtml(p.caption || 'Case photo')}" />
+        <div class="r-sub">${escapeHtml(p.caption || '')}</div>
+        <div class="r-sub hint">${escapeHtml(p.uploaded_by_name)} &middot; ${fmtDateTime(p.uploaded_at)}</div>
+        ${canWrite ? '<button type="button" class="btn btn-secondary btn-danger photo-delete-btn">Delete</button>' : ''}
+      `;
+      const imgEl = li.querySelector('.photo-thumb');
+      fetchPhotoBlob(p.id)
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          objectUrls.push(url);
+          imgEl.src = url;
+        })
+        .catch(() => {
+          imgEl.alt = 'Could not load photo';
+        });
+      if (canWrite) {
+        li.querySelector('.photo-delete-btn').addEventListener('click', async () => {
+          if (!confirm('Delete this photo? This cannot be undone.')) return;
+          try {
+            await apiFetch(`/api/photos/${p.id}`, { method: 'DELETE' });
+            refresh();
+          } catch (err) {
+            errorEl.textContent = formErrorMessage(err);
+            errorEl.hidden = false;
+          }
+        });
+      }
+      listEl.appendChild(li);
+    });
+  }
+
+  if (canWrite) {
+    wireEditToggle(toggle, form);
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      errorEl.hidden = true;
+      successEl.hidden = true;
+
+      const file = fileInput.files[0];
+      if (!file) {
+        errorEl.textContent = 'Choose a photo first.';
+        errorEl.hidden = false;
+        return;
+      }
+
+      try {
+        const { mimeType, base64 } = await downscaleImageFile(file);
+        await apiFetch('/api/photos', {
+          method: 'POST',
+          body: JSON.stringify({
+            record_type: recordType,
+            record_id: recordId,
+            mime_type: mimeType,
+            file_data_base64: base64,
+            caption: captionInput.value.trim(),
+          }),
+        });
+        successEl.textContent = 'Photo uploaded.';
+        successEl.hidden = false;
+        form.reset();
+        form.hidden = true;
+        await refresh();
+      } catch (err) {
+        errorEl.textContent = formErrorMessage(err);
+        errorEl.hidden = false;
+      }
+    };
+  }
+
+  await refresh();
+}
+
+// Incidents and crash reports can each have evidence_items linked to them
+// (evidence_items.incident_id / .crash_report_id,
+// db/migrations/007_add_evidence_module.sql) -- the evidence module's own
+// "Log Evidence Item" form already lets an officer find and link a case at
+// intake time, but until now the incident/crash side never showed that
+// link back. Matters of Record have no equivalent (evidenceSchema's
+// incident_id/crash_report_id xor has no mor_id option), so this is only
+// ever called from renderIncidentDetail/renderCrashDetail.
+async function loadLinkedEvidence(listEl, queryParam) {
+  listEl.innerHTML = '<li class="hint">Loading...</li>';
+  try {
+    const data = await apiFetch(`/api/evidence?${queryParam}&limit=50`);
+    if (data.results.length === 0) {
+      listEl.innerHTML = '<li class="hint">None on file.</li>';
+      return;
+    }
+    listEl.innerHTML = '';
+    data.results.forEach((item) => {
+      const li = document.createElement('li');
+      li.className = 'result-item';
+      li.innerHTML = `<div class="r-title">${escapeHtml(item.item_number)} — ${humanize(item.category)}</div>
+        <div class="r-sub">${fmtStatus(item.status)} — ${escapeHtml(item.description)}</div>`;
+      li.addEventListener('click', () => renderEvidenceDetail(item.id));
+      listEl.appendChild(li);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<li class="error-text">${escapeHtml(err.message)}</li>`;
+  }
+}
+
+// ------------------------------------------------------------------
 // Search view
 // ------------------------------------------------------------------
 
@@ -2145,6 +2354,9 @@ async function renderIncidentDetail(id) {
       document.getElementById('incident-collections-edit-toggle').hidden = true;
       document.getElementById('incident-collections-edit-form').hidden = true;
     }
+
+    await loadLinkedEvidence(mainContent.querySelector('.i-linked-evidence'), `incident_id=${id}`);
+    await wirePhotosSection('Incident', id, 'i');
   } catch (err) {
     mainContent.querySelector('.i-case-number').textContent = err.message;
   }
@@ -2526,6 +2738,8 @@ async function renderMorDetail(id) {
       editToggle.hidden = true;
       editForm.hidden = true;
     }
+
+    await wirePhotosSection('MOR', id, 'mor');
   }
 
   try {
@@ -2842,6 +3056,9 @@ async function renderCrashDetail(id) {
       editToggle.hidden = true;
       editForm.hidden = true;
     }
+
+    await loadLinkedEvidence(mainContent.querySelector('.cr-linked-evidence'), `crash_report_id=${id}`);
+    await wirePhotosSection('Crash', id, 'cr');
   } catch (err) {
     mainContent.querySelector('.cr-report-number').textContent = err.message;
   }
