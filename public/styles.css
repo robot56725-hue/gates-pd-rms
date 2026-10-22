@@ -336,6 +336,17 @@ legend {
   justify-content: center;
   padding: 20px;
 }
+/* The `hidden` attribute's UA-stylesheet `display: none` loses to this
+   class's own `display: flex` above (author styles always beat the UA
+   stylesheet, regardless of selector order or specificity), so without
+   this rule the modal renders as a permanent full-screen overlay --
+   covering and intercepting clicks on every page, including login --
+   no matter what the `hidden` attribute is set to. This selector's
+   extra specificity (class + attribute) re-asserts `display: none`
+   whenever JS sets `hidden` back on. */
+.dl-scan-modal[hidden] {
+  display: none;
+}
 .dl-scan-dialog {
   background: var(--card-bg);
   border-radius: 12px;
