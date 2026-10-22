@@ -1925,6 +1925,7 @@ function openLicenseScanner({ onResult, onCancel }) {
     video.srcObject = null;
     modal.hidden = true;
     cancelBtn.removeEventListener('click', handleCancelClick);
+    hintTimers.forEach((timerId) => clearTimeout(timerId));
   }
 
   function handleCancelClick() {
@@ -1936,8 +1937,47 @@ function openLicenseScanner({ onResult, onCancel }) {
   modal.hidden = false;
   statusEl.textContent = 'Starting camera...';
 
-  const reader = new ZXingBrowser.BrowserPDF417Reader();
-  const constraints = { video: { facingMode: { ideal: 'environment' } } };
+  // TRY_HARDER = 3 in @zxing/library's DecodeHintType enum -- spends more
+  // time per frame to improve accuracy on a dense code like PDF417, at
+  // some cost to scan speed. Passed as a raw number because the UMD
+  // bundle loaded from the CDN (window.ZXingBrowser) doesn't re-export
+  // the DecodeHintType enum itself, only the reader/format classes.
+  const hints = new Map();
+  hints.set(3, true);
+  const reader = new ZXingBrowser.BrowserPDF417Reader(hints);
+  // A PDF417 barcode packs far more fine detail into its bars than a
+  // typical QR/linear code, so the camera's default resolution (often
+  // 640x480) frequently isn't sharp enough to resolve it at a normal
+  // scanning distance -- the scan loop just runs forever without ever
+  // matching a code. Requesting a high resolution (the browser picks the
+  // closest the camera actually supports; "ideal" never hard-fails if a
+  // device can't reach it) gives the decoder far more pixels to work with.
+  const constraints = {
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+    },
+  };
+
+  // The officer gets no feedback at all while the loop runs silently in
+  // the background -- these escalate with concrete things to try, rather
+  // than leaving "Looking for the barcode..." up unchanged for however
+  // long it takes.
+  const hintTimers = [
+    setTimeout(() => {
+      if (!closed) {
+        statusEl.textContent =
+          "Still looking... make sure you're showing the BACK of the card (the side with the barcode), not the front.";
+      }
+    }, 6000),
+    setTimeout(() => {
+      if (!closed) {
+        statusEl.textContent =
+          'Still looking... try moving the card a bit closer or farther away, hold it flat and steady, and make sure the barcode is well lit with no glare.';
+      }
+    }, 14000),
+  ];
 
   reader
     .decodeFromConstraints(constraints, video, (result, err, scanControls) => {
