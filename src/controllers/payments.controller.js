@@ -114,7 +114,7 @@ const listPayments = asyncHandler(async (req, res) => {
     `SELECT ${PAYMENT_JOIN_COLUMNS}, count(*) OVER() AS total_count
        ${PAYMENT_JOIN_FROM}
       WHERE ($1::uuid IS NULL OR cp.case_id = $1)
-        AND ($2::text IS NULL OR cp.payment_type = $2)
+        AND ($2::text IS NULL OR cp.payment_type::text = $2)
         AND ($3::text IS NULL OR cp.payment_method = $3)
         AND ($4::uuid IS NULL OR cp.fund_category_id = $4)
         AND ($5::timestamptz IS NULL OR cp.paid_at >= $5)
