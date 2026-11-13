@@ -166,7 +166,7 @@ const listCases = asyncHandler(async (req, res) => {
     `SELECT ${CASE_JOIN_COLUMNS}, count(*) OVER() AS total_count
        ${CASE_JOIN_FROM}
       WHERE ($1::text IS NULL OR cc.case_status::text = $1)
-        AND ($2::text IS NULL OR cc.case_type = $2)
+        AND ($2::text IS NULL OR cc.case_type::text = $2)
         AND (
               $3::text IS NULL
               OR cc.case_number ILIKE '%' || $3 || '%'
