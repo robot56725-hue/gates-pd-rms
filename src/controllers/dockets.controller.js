@@ -79,7 +79,7 @@ const createDocket = asyncHandler(async (req, res) => {
 
   const inserted = await db.query(
     `INSERT INTO court_dockets (id, docket_date, docket_time, judge_id, docket_type, location, notes, created_by_id)
-     VALUES (COALESCE($1, gen_random_uuid()), $2, $3, $4, COALESCE($5, 'Traffic'), $6, $7, $8)
+     VALUES (COALESCE($1, gen_random_uuid()), $2, $3, $4, COALESCE($5, 'Traffic')::docket_type, $6, $7, $8)
      RETURNING *`,
     [
       payload.id || null,
@@ -108,7 +108,7 @@ const listDockets = asyncHandler(async (req, res) => {
       WHERE ($1::date IS NULL OR cd.docket_date >= $1)
         AND ($2::date IS NULL OR cd.docket_date <= $2)
         AND ($3::uuid IS NULL OR cd.judge_id = $3)
-        AND ($4::text IS NULL OR cd.docket_status = $4)
+        AND ($4::text IS NULL OR cd.docket_status::text = $4)
       ORDER BY cd.docket_date ASC, cd.docket_time ASC NULLS LAST
       LIMIT $5 OFFSET $6`,
     [
