@@ -38,7 +38,7 @@ const createReminder = asyncHandler(async (req, res) => {
 
   const inserted = await db.query(
     `INSERT INTO court_reminders (case_id, docket_entry_id, reminder_type, channel, scheduled_send_at, notes)
-     VALUES ($1, $2, $3, COALESCE($4, 'None'), $5, $6)
+     VALUES ($1, $2, $3, COALESCE($4, 'None')::reminder_channel, $5, $6)
      RETURNING *`,
     [
       payload.case_id,
@@ -70,7 +70,7 @@ const listReminders = asyncHandler(async (req, res) => {
        FROM court_reminders cr
        JOIN court_cases cc ON cc.id = cr.case_id
       WHERE ($1::uuid IS NULL OR cr.case_id = $1)
-        AND ($2::text IS NULL OR cr.status = $2)
+        AND ($2::text IS NULL OR cr.status::text = $2)
         AND ($3::timestamptz IS NULL OR cr.scheduled_send_at >= $3)
         AND ($4::timestamptz IS NULL OR cr.scheduled_send_at <= $4)
       ORDER BY cr.scheduled_send_at ASC

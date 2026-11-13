@@ -598,6 +598,76 @@ function fmtTimeOnly(value) {
   return Number.isNaN(d.getTime()) ? value : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// Town of Gates Municipal Court sits the 3rd Tuesday of every month at
+// 4:00 PM (per the clerk's 2027 court calendar). This list must stay in
+// sync with the <option value="..."> dates hardcoded into the
+// court-date <select> elements in index.html (citation issue/edit forms,
+// docket form) -- it's used here only to recognize which of those preset
+// dates an existing record's court_date/docket_date matches, so an edit
+// form can pre-select the right option instead of falling back to
+// "Other / not listed".
+const SCHEDULED_COURT_DATES = [
+  '2027-01-18', '2027-02-15', '2027-03-15', '2027-04-19',
+  '2027-05-17', '2027-06-21', '2027-07-19', '2027-08-16',
+  '2027-09-20', '2027-10-18', '2027-11-15', '2027-12-20',
+];
+const SCHEDULED_COURT_TIME = '16:00';
+
+// Wires a "<select> of scheduled court dates + fallback custom date/time
+// inputs" trio. Picking a scheduled date hides the raw inputs and fills
+// them with that date and the court's standard 4:00 PM time; picking
+// "Other / not listed" (or, on an edit form, leaving the blank
+// "leave unchanged" option) reveals the raw inputs for a date outside the
+// fixed schedule. existingDate/existingTime (optional, 'YYYY-MM-DD' /
+// 'HH:MM') pre-select a matching scheduled date when editing an existing
+// record, or fall back to "Other" with the inputs pre-filled when the
+// existing value isn't one of the scheduled dates.
+function wireCourtDateDropdown({ selectId, dateId, timeId, customWrapId, existingDate, existingTime }) {
+  const select = document.getElementById(selectId);
+  const dateInput = document.getElementById(dateId);
+  const timeInput = timeId ? document.getElementById(timeId) : null;
+  const customWrap = document.getElementById(customWrapId);
+
+  select.addEventListener('change', () => {
+    if (select.value === 'other') {
+      customWrap.hidden = false;
+    } else if (select.value) {
+      customWrap.hidden = true;
+      dateInput.value = select.value;
+      if (timeInput) timeInput.value = SCHEDULED_COURT_TIME;
+    } else {
+      customWrap.hidden = true;
+      dateInput.value = '';
+      if (timeInput) timeInput.value = '';
+    }
+  });
+
+  if (existingDate) {
+    if (SCHEDULED_COURT_DATES.includes(existingDate)) {
+      select.value = existingDate;
+      customWrap.hidden = true;
+      dateInput.value = existingDate;
+      if (timeInput && existingTime) timeInput.value = existingTime;
+    } else {
+      select.value = 'other';
+      customWrap.hidden = false;
+      dateInput.value = existingDate;
+      if (timeInput && existingTime) timeInput.value = existingTime;
+    }
+  }
+
+  // A plain form.reset() (used on successful submit elsewhere in this
+  // file) restores the select to its default option but has no idea the
+  // custom-date div exists, so it can be left open with now-blanked
+  // inputs after a reset. Close it back up whenever the form resets.
+  const formEl = select.closest('form');
+  if (formEl) {
+    formEl.addEventListener('reset', () => {
+      customWrap.hidden = true;
+    });
+  }
+}
+
 function fmtHeight(inches) {
   if (inches === null || inches === undefined) return '—';
   const feet = Math.floor(inches / 12);
@@ -1236,13 +1306,23 @@ async function renderCitationDetail(id, backTo) {
       document.getElementById('ce-location').value = c.location || '';
       document.getElementById('ce-latitude').value = c.latitude ?? '';
       document.getElementById('ce-longitude').value = c.longitude ?? '';
+      let ceExistingDate = '';
+      let ceExistingTime = '';
       if (c.court_date) {
         const d = new Date(c.court_date);
         if (!Number.isNaN(d.getTime())) {
-          document.getElementById('ce-court-date').value = d.toISOString().slice(0, 10);
-          document.getElementById('ce-court-time').value = d.toISOString().slice(11, 16);
+          ceExistingDate = d.toISOString().slice(0, 10);
+          ceExistingTime = d.toISOString().slice(11, 16);
         }
       }
+      wireCourtDateDropdown({
+        selectId: 'ce-court-date-select',
+        dateId: 'ce-court-date',
+        timeId: 'ce-court-time',
+        customWrapId: 'ce-court-date-custom',
+        existingDate: ceExistingDate,
+        existingTime: ceExistingTime,
+      });
       document.getElementById('ce-court-location').value = c.court_location || '';
       document.getElementById('ce-court-name').value = c.court_name || '';
 
@@ -1411,6 +1491,13 @@ function setupSignaturePad(canvas) {
 function renderIssueForm() {
   mount('tpl-issue');
   const form = document.getElementById('issue-form');
+
+  wireCourtDateDropdown({
+    selectId: 'i-court-date-select',
+    dateId: 'i-court-date',
+    timeId: 'i-court-time',
+    customWrapId: 'i-court-date-custom',
+  });
 
   document.getElementById('i-scan-license-btn').addEventListener('click', () => {
     openLicenseScanner({
@@ -4719,6 +4806,13 @@ function wireDocketPanel() {
   newBtn.onclick = () => {
     form.hidden = !form.hidden;
   };
+
+  wireCourtDateDropdown({
+    selectId: 'dk-date-select',
+    dateId: 'dk-date',
+    timeId: 'dk-time',
+    customWrapId: 'dk-date-custom',
+  });
 
   document.getElementById('docket-filter-date-from').onchange = loadDocketsList;
   document.getElementById('docket-filter-date-to').onchange = loadDocketsList;

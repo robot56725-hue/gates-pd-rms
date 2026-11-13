@@ -323,10 +323,29 @@
             <label for="ce-longitude">Longitude</label>
             <input id="ce-longitude" type="number" step="any" min="-180" max="180" />
           </div>
-          <label for="ce-court-date">Court Date</label>
-          <input id="ce-court-date" type="date" />
-          <label for="ce-court-time">Court Time</label>
-          <input id="ce-court-time" type="time" />
+          <label for="ce-court-date-select">Court Date</label>
+          <select id="ce-court-date-select">
+            <option value="" selected>-- leave unchanged --</option>
+            <option value="2027-01-18">Tue, Jan 18, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-02-15">Tue, Feb 15, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-03-15">Tue, Mar 15, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-04-19">Tue, Apr 19, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-05-17">Tue, May 17, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-06-21">Tue, Jun 21, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-07-19">Tue, Jul 19, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-08-16">Tue, Aug 16, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-09-20">Tue, Sep 20, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-10-18">Tue, Oct 18, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-11-15">Tue, Nov 15, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-12-20">Tue, Dec 20, 2027 &mdash; 4:00 PM</option>
+            <option value="other">Other / not listed</option>
+          </select>
+          <div id="ce-court-date-custom" hidden>
+            <label for="ce-court-date">Court Date (custom)</label>
+            <input id="ce-court-date" type="date" />
+            <label for="ce-court-time">Court Time (custom)</label>
+            <input id="ce-court-time" type="time" />
+          </div>
           <label for="ce-court-location">Court Location</label>
           <input id="ce-court-location" />
           <label for="ce-court-name">Court Name</label>
@@ -481,10 +500,29 @@
 
         <fieldset>
           <legend>Court Appearance</legend>
-          <label for="i-court-date">Court Date</label>
-          <input id="i-court-date" type="date" required />
-          <label for="i-court-time">Court Time</label>
-          <input id="i-court-time" type="time" required />
+          <label for="i-court-date-select">Court Date</label>
+          <select id="i-court-date-select" required>
+            <option value="" selected disabled>-- select a court date --</option>
+            <option value="2027-01-18">Tue, Jan 18, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-02-15">Tue, Feb 15, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-03-15">Tue, Mar 15, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-04-19">Tue, Apr 19, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-05-17">Tue, May 17, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-06-21">Tue, Jun 21, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-07-19">Tue, Jul 19, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-08-16">Tue, Aug 16, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-09-20">Tue, Sep 20, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-10-18">Tue, Oct 18, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-11-15">Tue, Nov 15, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-12-20">Tue, Dec 20, 2027 &mdash; 4:00 PM</option>
+            <option value="other">Other / not listed</option>
+          </select>
+          <div id="i-court-date-custom" hidden>
+            <label for="i-court-date">Court Date (custom)</label>
+            <input id="i-court-date" type="date" required />
+            <label for="i-court-time">Court Time (custom)</label>
+            <input id="i-court-time" type="time" required />
+          </div>
           <label for="i-court-location">Court Location</label>
           <input id="i-court-location" required />
           <label for="i-court-name">Court Name</label>
@@ -1487,10 +1525,29 @@
       <div class="court-scope-panel" data-court-panel="docket" hidden>
         <button id="docket-new-btn" class="btn btn-primary">+ New Docket</button>
         <form id="docket-form" hidden novalidate>
-          <label for="dk-date">Docket Date</label>
-          <input id="dk-date" type="date" required />
-          <label for="dk-time">Docket Time (optional)</label>
-          <input id="dk-time" type="time" />
+          <label for="dk-date-select">Docket Date</label>
+          <select id="dk-date-select" required>
+            <option value="" selected disabled>-- select a docket date --</option>
+            <option value="2027-01-18">Tue, Jan 18, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-02-15">Tue, Feb 15, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-03-15">Tue, Mar 15, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-04-19">Tue, Apr 19, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-05-17">Tue, May 17, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-06-21">Tue, Jun 21, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-07-19">Tue, Jul 19, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-08-16">Tue, Aug 16, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-09-20">Tue, Sep 20, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-10-18">Tue, Oct 18, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-11-15">Tue, Nov 15, 2027 &mdash; 4:00 PM</option>
+            <option value="2027-12-20">Tue, Dec 20, 2027 &mdash; 4:00 PM</option>
+            <option value="other">Other / not listed</option>
+          </select>
+          <div id="dk-date-custom" hidden>
+            <label for="dk-date">Docket Date (custom)</label>
+            <input id="dk-date" type="date" required />
+            <label for="dk-time">Docket Time (custom, optional)</label>
+            <input id="dk-time" type="time" />
+          </div>
           <label for="dk-judge">Judge (optional)</label>
           <select id="dk-judge"><option value="">-- unassigned --</option></select>
           <label for="dk-type">Docket Type</label>
