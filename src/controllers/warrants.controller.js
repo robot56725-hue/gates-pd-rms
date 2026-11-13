@@ -71,7 +71,7 @@ const listWarrants = asyncHandler(async (req, res) => {
     `SELECT ${WARRANT_JOIN_COLUMNS}, count(*) OVER() AS total_count
        ${WARRANT_JOIN_FROM}
       WHERE ($1::uuid IS NULL OR cw.case_id = $1)
-        AND ($2::text IS NULL OR cw.warrant_status = $2)
+        AND ($2::text IS NULL OR cw.warrant_status::text = $2)
       ORDER BY cw.issued_at DESC
       LIMIT $3 OFFSET $4`,
     [query.case_id || null, query.warrant_status || null, query.limit, query.offset]
